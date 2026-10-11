@@ -96,11 +96,10 @@ impl PkgDb {
 }
 
 fn md5_file(p: &str) -> Option<String> {
-    let meta = fs::symlink_metadata(p).ok()?;
-    if !meta.is_file() {
+    if !fs::symlink_metadata(p).ok()?.is_file() {
         return None;
     }
-    let mut f = fs::File::open(p).ok()?;
+    let mut f = super::open_regular(p).ok()?;
     let mut h = Md5::new();
     std::io::copy(&mut f, &mut h).ok()?;
     Some(format!("{:x}", h.finalize()))

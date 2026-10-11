@@ -498,7 +498,7 @@ mod app {
                 _ => continue,
             };
             let h = cache.entry(src.clone()).or_insert_with(|| {
-                let mut file = std::fs::File::open(&src).ok()?;
+                let mut file = linux::open_regular(&src).ok()?;
                 let mut s = Sha256::new();
                 std::io::copy(&mut file, &mut s).ok()?;
                 Some(format!("{:x}", s.finalize()))

@@ -14,7 +14,7 @@ pub mod yara;
 
 use std::fs;
 use std::io::Read;
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -27,9 +27,29 @@ fn note_err(e: &std::io::Error) {
     }
 }
 
+/// Open a path for reading only if it is a regular file.
+///
+/// The open is non-blocking and the type is checked on the opened descriptor (no race with a
+/// separate stat), so a FIFO or device planted where Exhume reads (a cron.d entry, a web root,
+/// a persistence target) cannot hang the scan.
+pub fn open_regular(p: impl AsRef<Path>) -> std::io::Result<fs::File> {
+    let f = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(p.as_ref())?;
+    if f.metadata()?.is_file() {
+        Ok(f)
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ))
+    }
+}
+
 /// Read a text file, at most `cap` bytes, lossily decoded.
 pub fn read_text(p: impl AsRef<Path>, cap: usize) -> Option<String> {
-    let f = fs::File::open(p.as_ref()).map_err(|e| note_err(&e)).ok()?;
+    let f = open_regular(p).map_err(|e| note_err(&e)).ok()?;
     let mut buf = Vec::new();
     f.take(cap as u64)
         .read_to_end(&mut buf)
@@ -39,7 +59,7 @@ pub fn read_text(p: impl AsRef<Path>, cap: usize) -> Option<String> {
 }
 
 pub fn read_bytes(p: impl AsRef<Path>, cap: usize) -> Option<Vec<u8>> {
-    let f = fs::File::open(p.as_ref()).map_err(|e| note_err(&e)).ok()?;
+    let f = open_regular(p).map_err(|e| note_err(&e)).ok()?;
     let mut buf = Vec::new();
     f.take(cap as u64)
         .read_to_end(&mut buf)
@@ -134,4 +154,28 @@ pub fn homes() -> Vec<(String, String)> {
         }
     }
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fifo_and_devices_are_not_read() {
+        let dir = std::env::temp_dir().join(format!("exhume-fifo-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("planted");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o644) }, 0);
+        // Would block forever with a plain open() and no writer.
+        assert!(read_text(&fifo, 1024).is_none());
+        assert!(read_bytes(&fifo, 1024).is_none());
+        assert!(read_text("/dev/zero", 16).is_none());
+        let file = dir.join("regular");
+        fs::write(&file, "ok").unwrap();
+        assert_eq!(read_text(&file, 1024).as_deref(), Some("ok"));
+        // procfs files report as regular files and stay readable.
+        assert!(read_text("/proc/self/status", 4096).is_some());
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
