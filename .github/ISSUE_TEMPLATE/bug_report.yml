@@ -1,0 +1,32 @@
+name: Bug report
+description: Crash, wrong output, or a false positive / false negative
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Exhume version
+      description: Output of `exhume --version`
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution and kernel
+      placeholder: Ubuntu 24.04, 6.8.0-45-generic
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [Crash or error, False positive, Missed detection, Report output, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Command line, the relevant finding(s) from the JSON report, and what you expected. Redact hostnames and IPs if needed.
+    validations:
+      required: true

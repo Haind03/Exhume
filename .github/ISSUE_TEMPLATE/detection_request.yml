@@ -1,0 +1,21 @@
+name: Detection request
+description: A Linux technique, malware family or artefact Exhume should find
+labels: [detection]
+body:
+  - type: input
+    id: attack
+    attributes:
+      label: MITRE ATT&CK technique
+      placeholder: T1574.006
+  - type: textarea
+    id: artefact
+    attributes:
+      label: Artefact on a live host
+      description: Where the evidence lives (/proc, a file path, a socket...), and public references or samples hashes.
+    validations:
+      required: true
+  - type: textarea
+    id: benign
+    attributes:
+      label: Known benign look-alikes
+      description: Legitimate software that produces the same artefact, so the rule can avoid it.
