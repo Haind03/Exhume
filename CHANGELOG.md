@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-10-11
+
+### Fixed
+- A named pipe (FIFO) or device file planted where Exhume reads (cron.d, systemd unit directories, profile.d,
+  web roots, persistence targets, packaged files) could block the scan forever. Files are now opened
+  non-blocking and read only when the opened descriptor is a regular file.
+
 ## [0.1.0] - 2026-10-11
 
 ### Added
