@@ -64,6 +64,26 @@ jobs:
           mkdir dist
           cp target/x86_64-unknown-linux-musl/release/exhume dist/exhume-x86_64-linux-musl
           cd dist && sha256sum exhume-x86_64-linux-musl > exhume-x86_64-linux-musl.sha256
+      - name: Release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          awk -v v="$VER" '/^## \[/{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "### Download"
+            echo
+            echo "Static x86_64 Linux binary (musl, no dependencies). Verify, then run as root:"
+            echo
+            echo '```sh'
+            echo "sha256sum -c exhume-x86_64-linux-musl.sha256"
+            echo "chmod +x exhume-x86_64-linux-musl"
+            echo "sudo ./exhume-x86_64-linux-musl --html exhume.html --json exhume.json"
+            echo '```'
+            echo
+            echo "Third-party YARA rules keep their own licenses (Elastic License 2.0, DRL 1.1); see rules/README.md."
+          } >> notes.md
+          cat notes.md
       - uses: actions/upload-artifact@v4
         with:
           name: exhume-x86_64-linux-musl
@@ -72,5 +92,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: Exhume ${{ github.ref_name }}
+          body_path: notes.md
           files: dist/*
           generate_release_notes: true
