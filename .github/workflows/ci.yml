@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a GitHub Release (tag v<Cargo.toml version>) from this commit"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: fmt, clippy, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all-targets
+      - name: Tests without the YARA engine
+        run: cargo test --no-default-features
+
+  build-musl:
+    name: Static musl binary
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - name: Check the binary is static
+        run: |
+          BIN=target/x86_64-unknown-linux-musl/release/exhume
+          file "$BIN"
+          file "$BIN" | grep -Eq 'static(-pie)? linked'
+          "$BIN" --version
+      - name: Smoke run (unprivileged and root)
+        run: |
+          BIN=target/x86_64-unknown-linux-musl/release/exhume
+          set +e
+          "$BIN" --no-color --quiet --json out-user.json; rc=$?
+          echo "unprivileged exit code: $rc"; [ $rc -eq 0 ] || [ $rc -eq 2 ] || exit 1
+          sudo "$BIN" --no-color --quiet --json out-root.json --html report.html; rc=$?
+          echo "root exit code: $rc"; [ $rc -eq 0 ] || [ $rc -eq 2 ] || exit 1
+          python3 -c "import json; r=json.load(open('out-root.json')); print(r['processes_scanned'], 'processes,', len(r['findings']), 'findings')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exhume-x86_64-linux-musl
+          path: target/x86_64-unknown-linux-musl/release/exhume
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    # On a pushed tag vX.Y.Z; on main when that version has no release yet; or manually:
+    # Actions -> CI -> Run workflow -> release = true.
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.release)
+    needs: [test, build-musl]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release version
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CARGO_VER="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "${CARGO_VER}" ]; then
+            echo "tag ${GITHUB_REF_NAME} != Cargo.toml ${CARGO_VER}"; exit 1
+          fi
+          echo "tag=${CARGO_VER}" >> "$GITHUB_OUTPUT"
+          # A push to main only publishes a version that has not been released yet.
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF_TYPE}" = "branch" ] && gh release view "${CARGO_VER}" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"; echo "${CARGO_VER} already released"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.ver.outputs.publish == 'true'
+        with:
+          name: exhume-x86_64-linux-musl
+          path: dist
+      - name: Package and notes
+        if: steps.ver.outputs.publish == 'true'
+        run: |
+          VER="${{ steps.ver.outputs.tag }}"
+          mkdir pkg
+          cp dist/exhume pkg/exhume
+          chmod +x pkg/exhume
+          cp LICENSE README.md CHANGELOG.md pkg/
+          cp -r rules/elastic/LICENSE.txt pkg/LICENSE.elastic-rules.txt
+          cp rules/signature-base/LICENSE pkg/LICENSE.signature-base-rules.txt
+          tar -C pkg -czf "exhume-${VER}-x86_64-linux-musl.tar.gz" .
+          cp pkg/exhume exhume-x86_64-linux-musl
+          sha256sum "exhume-${VER}-x86_64-linux-musl.tar.gz" exhume-x86_64-linux-musl > SHA256SUMS.txt
+          {
+            echo "Static x86_64 Linux binary (musl, no dependencies). Run it as root for full coverage."
+            echo
+            echo '```sh'
+            echo 'sha256sum -c SHA256SUMS.txt --ignore-missing'
+            echo 'chmod +x exhume-x86_64-linux-musl'
+            echo 'sudo ./exhume-x86_64-linux-musl --html exhume.html --json exhume.json'
+            echo '```'
+            echo
+            awk -v v="${VER#v}" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md
+            echo
+            echo "SHA-256:"
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+            echo
+            echo "Third-party YARA rules keep their own licenses (Elastic License 2.0, DRL 1.1); see rules/README.md."
+            echo
+            echo "*by HaiND from the Post and Telecommunication Institute of Technology*"
+          } > notes.md
+          cat notes.md
+      - uses: softprops/action-gh-release@v2
+        if: steps.ver.outputs.publish == 'true'
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Exhume ${{ steps.ver.outputs.tag }}
+          body_path: notes.md
+          make_latest: true
+          files: |
+            exhume-${{ steps.ver.outputs.tag }}-x86_64-linux-musl.tar.gz
+            exhume-x86_64-linux-musl
+            SHA256SUMS.txt
