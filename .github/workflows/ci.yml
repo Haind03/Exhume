@@ -63,7 +63,7 @@ jobs:
           sudo "$BIN" --no-color --quiet --json out-root.json --html report.html; rc=$?
           echo "root exit code: $rc"; [ $rc -eq 0 ] || [ $rc -eq 2 ] || exit 1
           python3 -c "import json; r=json.load(open('out-root.json')); print(r['processes_scanned'], 'processes,', len(r['findings']), 'findings')"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: exhume-x86_64-linux-musl
           path: target/x86_64-unknown-linux-musl/release/exhume
