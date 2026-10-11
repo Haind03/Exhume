@@ -214,7 +214,9 @@ cargo build --release --no-default-features
 
 Requires Rust 1.85+. CI (GitHub Actions) runs `cargo fmt --check`, `cargo clippy -D warnings`, the test suite with
 and without the `yara` feature, builds the static musl binary, checks that it is static, runs it unprivileged and
-as root, and attaches the binary with its SHA-256 to tagged releases.
+as root, and publishes a GitHub Release (static binary, tarball with licenses, `SHA256SUMS.txt`, notes from
+`CHANGELOG.md`) when a `v*` tag is pushed, when `main` gets a `Cargo.toml` version that has no release yet, or
+manually via *Actions → CI → Run workflow → release*.
 
 ## Testing status
 
