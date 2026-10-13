@@ -143,6 +143,9 @@ fn verify_dpkg(deep: bool) -> (Vec<Finding>, usize) {
     let findings = jobs
         .par_iter()
         .filter_map(|(pkg, p, h)| {
+            if !super::governor::checkpoint() {
+                return None;
+            }
             let got = md5_file(p)?; // missing files are commonly path-excluded docs: not reported
             (got != *h).then(|| {
                 mismatch_finding("dpkg", pkg, p, &format!("md5 expected {h}, found {got}"))

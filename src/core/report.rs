@@ -4,6 +4,7 @@ use serde::Serialize;
 use std::fmt;
 
 use super::netrules::SocketRow;
+use super::resources::ScanStats;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -174,6 +175,8 @@ pub struct Report {
     pub findings: Vec<Finding>,
     /// Socket inventory (listening and established), mapped to owning processes.
     pub sockets: Vec<SocketRow>,
+    /// Threads, resource control and per-phase timings.
+    pub stats: ScanStats,
 }
 
 impl Report {
@@ -258,6 +261,24 @@ impl Report {
             self.count(Severity::Low),
             self.count(Severity::Info),
         );
+        let s = &self.stats;
+        if s.threads > 0 {
+            let phases = s
+                .phases
+                .iter()
+                .map(|(n, t)| format!("{n} {t:.1}s"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!(
+                "{dim}Performance: {} threads{}{}, paused {:.1}s for --cpulimit {}%; {}{reset}",
+                s.threads,
+                if s.soft { ", soft mode" } else { "" },
+                if s.lowprio { ", low priority" } else { "" },
+                s.paused_secs,
+                s.cpulimit,
+                phases
+            );
+        }
         for l in &self.limitations {
             println!("{dim}Limitation: {l}{reset}");
         }

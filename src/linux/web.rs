@@ -3,6 +3,7 @@
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 
+use super::walk::{par_walk, Walk};
 use super::{dir_files, read_text};
 use crate::core::webshell::{lang_of, parse_web_roots};
 
@@ -66,27 +67,26 @@ pub fn roots(users: &[(String, String)]) -> Vec<String> {
 
 /// Server-side script files under the roots: (path, mtime, size).
 pub fn scripts(roots: &[String], max_files: usize) -> Vec<(String, u64, u64)> {
-    let mut out = Vec::new();
-    let mut stack: Vec<(String, u32)> = roots.iter().map(|r| (r.clone(), 0)).collect();
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > 24 || out.len() >= max_files {
-            continue;
-        }
-        let Ok(rd) = fs::read_dir(&dir) else { continue };
-        for e in rd.flatten() {
-            let path = e.path().to_string_lossy().into_owned();
-            let Ok(m) = fs::symlink_metadata(&path) else {
-                continue;
-            };
-            if m.is_dir() {
-                let n = e.file_name();
-                if n != "node_modules" && n != ".git" {
-                    stack.push((path, depth + 1));
-                }
-            } else if m.is_file() && lang_of(&path).is_some() {
-                out.push((path, m.mtime().max(m.ctime()).max(0) as u64, m.size()));
-            }
-        }
-    }
+    let skip_dir = |_: &str, name: &str| name == "node_modules" || name == ".git";
+    let visit = |path: &str, m: &fs::Metadata| {
+        lang_of(path).map(|_| {
+            (
+                path.to_string(),
+                m.mtime().max(m.ctime()).max(0) as u64,
+                m.size(),
+            )
+        })
+    };
+    let (mut out, _) = par_walk(
+        roots,
+        &Walk {
+            max_depth: 24,
+            limit: max_files,
+            skip_dir: &skip_dir,
+            visit: &visit,
+        },
+    );
+    out.truncate(max_files);
+    out.sort();
     out
 }

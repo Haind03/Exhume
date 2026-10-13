@@ -10,6 +10,7 @@ pub mod persistrules;
 pub mod pkgverify;
 pub mod procrules;
 pub mod report;
+pub mod resources;
 pub mod rootkit;
 pub mod timefmt;
 pub mod webshell;

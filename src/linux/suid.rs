@@ -3,6 +3,7 @@
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 
+use super::walk::{par_walk, Walk};
 use super::{now, read_text};
 use crate::core::persistrules::{suid_entry, Entry};
 
@@ -86,38 +87,29 @@ pub fn sweep(deep: bool, owns: &(dyn Fn(&str) -> Option<bool> + Sync)) -> (Vec<E
         "/var/lib/snapd/snaps",
     ];
     let now = now();
-    let mut out = Vec::new();
-    let mut seen = 0usize;
-    let mut stack: Vec<(String, u32)> = roots.into_iter().map(|r| (r, 0)).collect();
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > 40 || fixed_skip.contains(&dir.as_str()) || skip.contains(&dir) {
-            continue;
+    let skip_dir =
+        |path: &str, _: &str| fixed_skip.contains(&path) || skip.iter().any(|m| m == path);
+    let visit = |path: &str, m: &std::fs::Metadata| {
+        let mode = m.mode();
+        if mode & 0o6000 == 0 {
+            return None;
         }
-        let Ok(rd) = fs::read_dir(&dir) else { continue };
-        for e in rd.flatten() {
-            let path = e.path().to_string_lossy().into_owned();
-            let Ok(m) = fs::symlink_metadata(&path) else {
-                continue;
-            };
-            if m.is_dir() {
-                stack.push((path, depth + 1));
-            } else if m.is_file() {
-                seen += 1;
-                let mode = m.mode();
-                if mode & 0o6000 != 0 {
-                    if let Some(entry) = suid_entry(
-                        &path,
-                        mode,
-                        owns(&path),
-                        Some(m.mtime().max(0) as u64),
-                        Some(m.ctime().max(0) as u64),
-                        now,
-                    ) {
-                        out.push(entry);
-                    }
-                }
-            }
-        }
-    }
-    (out, seen)
+        suid_entry(
+            path,
+            mode,
+            owns(path),
+            Some(m.mtime().max(0) as u64),
+            Some(m.ctime().max(0) as u64),
+            now,
+        )
+    };
+    par_walk(
+        &roots,
+        &Walk {
+            max_depth: 40,
+            limit: usize::MAX,
+            skip_dir: &skip_dir,
+            visit: &visit,
+        },
+    )
 }
