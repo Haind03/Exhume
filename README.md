@@ -156,6 +156,20 @@ Exhume is built for live response on production hosts, so it scales out without 
 - **Accountable.** Thread count, pause time, skipped items and the duration of every phase are printed in the console
   summary and stored under `stats` in the JSON report.
 
+Measured on a 4-core test VM (Ubuntu userland, dpkg, 95 processes, simulated artefacts; mean of two runs; cold =
+page cache dropped before the run, which is what a first run on a suspect host looks like):
+
+| Run | v0.1.1 | v0.2.0 `--threads 0` | v0.2.0 default (2 threads) |
+| --- | --- | --- | --- |
+| Standard, cold cache | 8.5 s | 4.4 s | 6.7 s |
+| `--deep`, cold cache | 25.3 s | 15.1 s | - |
+| Standard, warm cache | 3.6 s | 3.6 s | - |
+| `--deep`, warm cache | 7.5 s | 7.4 s | - |
+
+The gain comes from overlapping I/O-bound modules (SUID walk, package hashing, file reads for YARA); with everything
+already cached the run is bound by YARA rule compilation and scanning, so warm timings stay the same. Both versions
+report the same findings. Larger and busier hosts have more to overlap, but those numbers have not been measured yet.
+
 Typical command lines:
 
 ```sh
