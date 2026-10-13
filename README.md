@@ -108,6 +108,19 @@ exhume [OPTIONS]
   --rules FILE            extra YARA rule file, repeatable
   --no-pid-bruteforce     skip the kill(pid, 0) sweep of the PID space
   -q, --quiet             no progress messages on stderr
+
+Performance and resource control:
+  --threads N             worker threads; 0 = all cores, -N = all cores minus N   (default: half the cores)
+  --cpulimit PCT          pause while total system CPU is above PCT, 15-100        (default: 95, 100 = never)
+  --minmem MiB            skip heavy items while available memory is below MiB     (default: 100, 0 = off)
+  --lowprio               nice 10 and idle I/O class for every Exhume thread
+  --soft                  1 thread, low priority, cpulimit 70, no --deep, no PID sweep
+  --nosoft                never switch soft mode on automatically
+  --max-file-size MiB     largest file read for hashing/YARA          (default: 64, 256 with --deep)
+  --max-region-size MiB   largest memory region read for YARA         (default: 64, 256 with --deep)
+  --yara-timeout SECS     abort a single YARA scan after SECS         (default: 20)
+  --lookback DAYS         filesystem modules only report files changed in the last DAYS
+  --max-runtime MINUTES   stop optional work after MINUTES (0 = no limit), report what was covered
 ```
 
 | | Standard | `--deep` |
@@ -118,6 +131,39 @@ exhume [OPTIONS]
 | SUID/SGID sweep | system, temp, home, web and service directories | whole filesystem (pseudo and network filesystems skipped) |
 | Package integrity | binaries in `bin`/`sbin`, PAM modules, core libraries (libc, ld.so, libpam, libkeyutils, libssl, liblzma, ...) | every packaged file |
 | Web scripts | up to 50 000 (YARA on 20 000) | no cap |
+
+### Multithreading and resource control
+
+Exhume is built for live response on production hosts, so it scales out without taking the host down:
+
+- **One worker pool, sized on purpose.** All work runs on a dedicated pool of `--threads` workers. The default is
+  half the cores, leaving the other half to the host's own workload; `--threads 0` uses every core (forensic
+  workstation, isolated host), `--threads -1` all but one.
+- **Pipeline instead of a sequence.** Process snapshots and the package database load at the same time. Every
+  process is then analysed as its own task (a huge JVM never blocks a batch of small processes). After that, the
+  host-wide modules run **concurrently**: PID brute force and kernel module/eBPF cross-views, persistence parsing
+  with the SUID/SGID sweep, webshell hunting, and package hashing. Filesystem walks are parallel too: every
+  directory fans its subdirectories out as separate tasks.
+- **YARA scheduling.** Targets are deduplicated by device and inode (the same binary behind many
+  `/proc/<pid>/exe` links is scanned once) and scheduled **largest first**, one target per task, so the scan does not
+  end with a single thread chewing a big region while the others sit idle. Each scan has a timeout.
+- **Resource governor.** A sampler thread reads `/proc/stat` and `/proc/meminfo` every 500 ms. Before each heavy item
+  (memory analysis of a process, a file hash, a web script, a YARA target) a worker checks in: above `--cpulimit` it
+  waits (at most 10 s per item, so a permanently busy host is still scanned, slowly); below `--minmem` the item is
+  skipped; after `--max-runtime` optional work stops. Skips are counted and listed under *Limitations*.
+- **Soft mode** (`--soft`, and automatically on 1-core or < 1 GiB RAM hosts) trades coverage for safety: one
+  thread, low priority, `--cpulimit 70`, no `--deep`, no PID sweep.
+- **Accountable.** Thread count, pause time, skipped items and the duration of every phase are printed in the console
+  summary and stored under `stats` in the JSON report.
+
+Typical command lines:
+
+```sh
+sudo exhume --html r.html                            # production server: half the cores, cpulimit 95
+sudo exhume --soft --html r.html                     # fragile or tiny host
+sudo exhume --threads 0 --deep --cpulimit 100        # isolated host, maximum speed
+sudo exhume --lookback 7 --max-runtime 20            # quick triage of recent changes, bounded time
+```
 
 **Exit codes**: `0` nothing High or Critical, `2` at least one High/Critical finding (computed before
 `--min-severity` filtering), `1` error (for example a report file that cannot be written).
@@ -192,7 +238,9 @@ rules/     embedded YARA rules (custom, Elastic, signature-base), compiled only 
   Each disagreement is re-checked on a second pass to drop processes and modules that simply appeared or vanished.
 - **Static.** The musl build has no dynamic loader, so `/etc/ld.so.preload` and `LD_PRELOAD` rootkits (libprocesshider,
   Azazel, Jynx, ...) cannot hide anything from Exhume itself.
-- **Parallel.** Processes, package hashing, web script analysis and YARA scanning run on all cores (rayon).
+- **Parallel and governed.** A sized worker pool runs per-process analysis, concurrent host-wide modules, parallel
+  filesystem walks and largest-first YARA, under a CPU/memory/runtime governor (see
+  [Multithreading and resource control](#multithreading-and-resource-control)).
 - **Scored, not dumped.** Persistence entries owned by a package, untouched and benign are silent; content, location,
   ownership and modification time decide the severity.
 

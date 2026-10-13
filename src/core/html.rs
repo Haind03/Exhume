@@ -147,7 +147,7 @@ const state = { sev: new Set(["critical","high","medium","low"]), cat: null, q: 
 
 $("name").textContent = R.tool + " v" + R.version + " — threat hunting report";
 $("sig").textContent = R.author;
-const meta = [["host", R.host], ["kernel", R.kernel], ["started", R.started], ["duration", (R.duration || 0).toFixed(1) + " s"], ["processes", R.processes_scanned], ["root", R.root ? "yes" : "no (partial coverage)"], ["mode", R.deep ? "deep" : "standard"]];
+const meta = [["host", R.host], ["kernel", R.kernel], ["started", R.started], ["duration", (R.duration || 0).toFixed(1) + " s"], ["processes", R.processes_scanned], ["root", R.root ? "yes" : "no (partial coverage)"], ["mode", R.deep ? "deep" : "standard"], ["threads", R.stats ? R.stats.threads + (R.stats.soft ? " (soft)" : "") : "-"]];
 for (const [k, v] of meta) $("meta").append(h("span", {}, k), h("b", {}, String(v)));
 
 const count = s => R.findings.filter(f => f.severity === s).length;

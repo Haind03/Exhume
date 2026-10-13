@@ -1,6 +1,7 @@
 //! Linux collectors. Everything here gathers raw data read-only and hands it to `crate::core` rules.
 //! Nothing on the host is written, signalled (kill uses signal 0) or modified.
 
+pub mod governor;
 pub mod mem;
 pub mod net;
 pub mod persist;
@@ -8,6 +9,7 @@ pub mod pkg;
 pub mod procs;
 pub mod rootkit;
 pub mod suid;
+pub mod walk;
 pub mod web;
 #[cfg(feature = "yara")]
 pub mod yara;

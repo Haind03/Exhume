@@ -3,6 +3,25 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-10-13
+
+### Added
+- Multithreading control: `--threads` (0 = all cores, negative = all cores minus N; default half the cores) on a
+  dedicated worker pool.
+- Resource governor: `--cpulimit` pauses work while system CPU is above the limit, `--minmem` skips heavy items
+  when available memory is low, `--max-runtime` bounds the scan; skips are reported as limitations.
+- `--lowprio` (nice 10, idle I/O class), `--soft` and automatic soft mode on 1-core or < 1 GiB RAM hosts, `--nosoft`.
+- `--lookback DAYS` for the persistence, SUID and webshell modules; `--max-file-size`, `--max-region-size`,
+  `--yara-timeout`.
+- Scan statistics in the report (`stats`): threads, pause time, skipped items, per-phase durations.
+
+### Changed
+- Host-wide modules (rootkit cross-views, persistence + SUID sweep, webshells, package integrity) now run
+  concurrently instead of one after another; the package database loads while processes are snapshotted.
+- SUID/SGID sweep and web-root walk are parallel directory walks.
+- YARA targets are deduplicated by device and inode and scheduled largest-first, one target per task.
+- Per-process analysis is scheduled one process per task.
+
 ## [0.1.1] - 2026-10-11
 
 ### Fixed

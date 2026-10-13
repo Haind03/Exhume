@@ -135,25 +135,50 @@ fn intern(id: &str) -> &'static str {
     s
 }
 
-pub fn scan(eng: &Engine, targets: Vec<Target>, max_len: usize) -> Vec<Finding> {
+/// Size limits and per-scan timeout.
+pub struct ScanOpts {
+    pub max_file: usize,
+    pub max_region: usize,
+    pub timeout: Duration,
+}
+
+impl Target {
+    /// Bytes this target will make YARA read (for largest-first scheduling).
+    pub fn cost(&self, o: &ScanOpts) -> u64 {
+        match self {
+            Target::Mem { len, .. } => (*len).min(o.max_region as u64),
+            Target::File { path, .. } => std::fs::metadata(path)
+                .map(|m| m.len().min(o.max_file as u64))
+                .unwrap_or(0),
+        }
+    }
+}
+
+pub fn scan(eng: &Engine, mut targets: Vec<Target>, o: &ScanOpts) -> Vec<Finding> {
+    crate::core::resources::largest_first(&mut targets, |t| t.cost(o));
     targets
         .into_par_iter()
+        // One small task per target keeps big and small items interleaved across threads.
+        .with_max_len(1)
         .map_init(
             || {
                 let mut s = yara_x::Scanner::new(&eng.rules);
-                s.set_timeout(Duration::from_secs(20));
+                s.set_timeout(o.timeout);
                 s
             },
             |scanner, t| {
+                if !super::governor::checkpoint() {
+                    return Vec::new();
+                }
                 let (data, mem) = match &t {
                     Target::Mem { pid, addr, len, .. } => {
                         let Some(f) = open_mem(*pid) else {
                             return Vec::new();
                         };
-                        (read_at(&f, *addr, (*len as usize).min(max_len)), true)
+                        (read_at(&f, *addr, (*len as usize).min(o.max_region)), true)
                     }
                     Target::File { path, .. } => {
-                        (read_bytes(path, max_len).unwrap_or_default(), false)
+                        (read_bytes(path, o.max_file).unwrap_or_default(), false)
                     }
                 };
                 if data.is_empty() {
