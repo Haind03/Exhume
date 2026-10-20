@@ -155,7 +155,7 @@ jobs:
             echo "*by HaiND from the Post and Telecommunication Institute of Technology*"
           } > notes.md
           cat notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: steps.ver.outputs.publish == 'true'
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
