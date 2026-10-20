@@ -115,10 +115,12 @@ rule Exhume_Script_Memfd_Loader
         $m1 = "memfd_create" ascii
         $m2 = "syscall(319" ascii
         $m3 = "syscall(279" ascii
+        // An exec of the memfd is required: "/proc/self/fd/N" alone is also how libraries hand
+        // in-memory TLS keys to OpenSSL (google-auth), which is not a loader.
         $e1 = "os.execv" ascii
-        $e2 = "/proc/self/fd/" ascii
         $e3 = "exec {" ascii
         $e4 = "os.fexecve" ascii
+        $e5 = "execveat" ascii
         $s1 = "import os" ascii
         $s2 = "import ctypes" ascii
         $s3 = "use POSIX" ascii

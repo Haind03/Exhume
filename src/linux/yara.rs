@@ -314,6 +314,13 @@ mod tests {
             .unwrap()
             .matching_rules()
             .any(|r| r.identifier() == "Exhume_Script_Memfd_Loader"));
+        // google-auth keeps TLS keys in a memfd and passes /proc/self/fd/N to OpenSSL: no exec.
+        let tls = b"import os\nfd = os.memfd_create(name, os.MFD_CLOEXEC)\nos.write(fd, key)\npaths.append(f\"/proc/self/fd/{fd}\")\n";
+        assert!(!s2
+            .scan(tls)
+            .unwrap()
+            .matching_rules()
+            .any(|r| r.identifier() == "Exhume_Script_Memfd_Loader"));
     }
 
     /// False-positive gate: no enabled rule may match clean system binaries, libraries and
