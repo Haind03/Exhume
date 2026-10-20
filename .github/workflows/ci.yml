@@ -76,6 +76,10 @@ jobs:
           sudo mkdir -p /etc/NetworkManager/dispatcher.d
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/sbin/NetworkManager >/dev/null
           sudo chmod +x /usr/local/sbin/NetworkManager
+      - name: Keep a clean interpreter for the report
+        # PANIX's suid and cap modules plant on the system python3 itself, so the report runs
+        # on a copy taken before planting (a plain cp drops the SUID bit and capabilities).
+        run: cp "$(readlink -f "$(command -v python3)")" "$RUNNER_TEMP/python3"
       - name: Baseline scan
         run: sudo target/release/exhume --quiet --no-color --no-pid-bruteforce --min-severity info --json baseline.json || [ $? -eq 2 ]
       - name: Plant persistence with PANIX
@@ -88,12 +92,8 @@ jobs:
         run: sudo target/release/exhume --quiet --no-color --no-pid-bruteforce --min-severity info --json after.json --html coverage.html || [ $? -eq 2 ]
       - name: Coverage report
         run: |
-          # The planted techniques can change permissions around the runner, so the
-          # summary is written locally first and appended with sudo.
-          rc=0
-          python3 -I tests/coverage/evaluate.py tests/coverage/expect.tsv planted/installed.tsv baseline.json after.json coverage.md || rc=$?
-          [ -f coverage.md ] && sudo tee -a "$GITHUB_STEP_SUMMARY" < coverage.md >/dev/null || true
-          exit $rc
+          "$RUNNER_TEMP/python3" -I tests/coverage/evaluate.py tests/coverage/expect.tsv \
+            planted/installed.tsv baseline.json after.json "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -102,7 +102,6 @@ jobs:
             baseline.json
             after.json
             coverage.html
-            coverage.md
             planted/
 
   build-musl:
