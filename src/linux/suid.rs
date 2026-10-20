@@ -5,7 +5,23 @@ use std::os::unix::fs::MetadataExt;
 
 use super::walk::{par_walk, Walk};
 use super::{now, read_text};
+use crate::core::persistext::{capability_entry, parse_vfs_cap};
 use crate::core::persistrules::{suid_entry, Entry};
+
+/// Raw `security.capability` xattr of a file (not following symlinks).
+fn file_caps(path: &str) -> Option<Vec<u8>> {
+    let c = std::ffi::CString::new(path).ok()?;
+    let mut buf = [0u8; 64];
+    let n = unsafe {
+        libc::lgetxattr(
+            c.as_ptr(),
+            c"security.capability".as_ptr(),
+            buf.as_mut_ptr() as *mut libc::c_void,
+            buf.len(),
+        )
+    };
+    (n > 0).then(|| buf[..n as usize].to_vec())
+}
 
 const DEFAULT_ROOTS: &[&str] = &[
     "/bin", "/sbin", "/usr", "/lib", "/lib64", "/opt", "/tmp", "/var/tmp", "/dev/shm", "/home",
@@ -89,21 +105,29 @@ pub fn sweep(deep: bool, owns: &(dyn Fn(&str) -> Option<bool> + Sync)) -> (Vec<E
     let now = now();
     let skip_dir =
         |path: &str, _: &str| fixed_skip.contains(&path) || skip.iter().any(|m| m == path);
+    // SUID/SGID bits and file capabilities, read in the same pass over the tree.
     let visit = |path: &str, m: &std::fs::Metadata| {
         let mode = m.mode();
-        if mode & 0o6000 == 0 {
-            return None;
+        let mut found = Vec::new();
+        if mode & 0o6000 != 0 {
+            found.extend(suid_entry(
+                path,
+                mode,
+                owns(path),
+                Some(m.mtime().max(0) as u64),
+                Some(m.ctime().max(0) as u64),
+                now,
+            ));
         }
-        suid_entry(
-            path,
-            mode,
-            owns(path),
-            Some(m.mtime().max(0) as u64),
-            Some(m.ctime().max(0) as u64),
-            now,
-        )
+        if mode & 0o111 != 0 {
+            if let Some((mask, eff)) = file_caps(path).and_then(|b| parse_vfs_cap(&b)) {
+                let t = m.mtime().max(m.ctime()).max(0) as u64;
+                found.extend(capability_entry(path, mask, eff, owns(path), Some(t)));
+            }
+        }
+        (!found.is_empty()).then_some(found)
     };
-    par_walk(
+    let (found, seen) = par_walk(
         &roots,
         &Walk {
             max_depth: 40,
@@ -111,5 +135,6 @@ pub fn sweep(deep: bool, owns: &(dyn Fn(&str) -> Option<bool> + Sync)) -> (Vec<E
             skip_dir: &skip_dir,
             visit: &visit,
         },
-    )
+    );
+    (found.into_iter().flatten().collect(), seen)
 }
