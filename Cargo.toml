@@ -1,6 +1,6 @@
 [package]
 name = "exhume"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.85"
 authors = ["HaiND from the Post and Telecommunication Institute of Technology <haind@ptit.edu.vn>"]
@@ -43,9 +43,28 @@ yara-x = { version = "1", optional = true, default-features = false, features = 
     "console-module",
 ] }
 
+[build-dependencies]
+# Same engine, same features: rules are compiled at build time (build.rs) and deserialized at run time.
+yara-x = { version = "1", optional = true, default-features = false, features = [
+    "constant-folding",
+    "exact-atoms",
+    "fast-regexp",
+    "elf-module",
+    "pe-module",
+    "hash-module",
+    "math-module",
+    "string-module",
+    "time-module",
+    "console-module",
+] }
+
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# Compile the rule set at build time with an optimized engine.
+[profile.release.build-override]
+opt-level = 3

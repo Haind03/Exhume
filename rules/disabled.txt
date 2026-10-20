@@ -1,0 +1,3 @@
+# Rules switched off after false-positive testing on clean system files.
+# Format: <rule file namespace> <rule name>   # reason
+# The namespace is "<source>/<file>" as shown in a YARA finding's "rule file:" detail; "*" matches any file.

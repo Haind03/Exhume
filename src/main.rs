@@ -66,6 +66,9 @@ mod app {
         /// Extra YARA rule file(s) to load alongside the embedded set
         #[arg(long = "rules", value_name = "FILE")]
         extra_rules: Vec<String>,
+        /// Directory of extra YARA rules (*.yar, *.yara, recursive), repeatable
+        #[arg(long = "rules-dir", value_name = "DIR")]
+        rules_dir: Vec<String>,
         /// Skip the kill(pid, 0) brute force over the whole PID space
         #[arg(long)]
         no_pid_bruteforce: bool,
@@ -713,8 +716,18 @@ mod app {
             .map(|(s, n)| format!("{s} {n}"))
             .collect::<Vec<_>>()
             .join(", ");
-        ui.step(&format!("compiling YARA rules ({counts})"));
-        let eng = match yara::engine(&args.extra_rules) {
+        ui.step(&format!("loading precompiled YARA rules ({counts})"));
+        let mut extra = args.extra_rules.clone();
+        for d in &args.rules_dir {
+            let found = yara::rule_files_in(d);
+            if found.is_empty() {
+                report
+                    .limitations
+                    .push(format!("--rules-dir {d}: no .yar/.yara files found"));
+            }
+            extra.extend(found);
+        }
+        let eng = match yara::engine(&extra) {
             Ok(e) => e,
             Err(e) => {
                 report.limitations.push(format!("YARA unavailable: {e}"));

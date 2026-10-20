@@ -106,6 +106,7 @@ exhume [OPTIONS]
   --no-color              no ANSI colours (also honoured: NO_COLOR)
   --no-yara               skip YARA scanning
   --rules FILE            extra YARA rule file, repeatable
+  --rules-dir DIR         directory of extra YARA rules (recursive), repeatable
   --no-pid-bruteforce     skip the kill(pid, 0) sweep of the PID space
   -q, --quiet             no progress messages on stderr
 
@@ -325,17 +326,24 @@ What has actually been tested, so the results can be weighed correctly:
 
 ## YARA rules and licenses
 
-Exhume embeds three rule sets; full provenance and the vetting procedure are in [rules/README.md](rules/README.md).
+Exhume embeds five rule sets, compiled at build time; full provenance and the vetting procedure are in
+[rules/README.md](rules/README.md).
 
 | Source | Upstream commit | Files | License |
 | --- | --- | --- | --- |
 | Exhume custom rules (`rules/custom`) | - | 1 | MIT |
-| [elastic/protections-artifacts](https://github.com/elastic/protections-artifacts) `Linux_*.yar` | `955723319e62a7e4095d256355b095a7594ff48c` | 248 | [Elastic License 2.0](rules/elastic/LICENSE.txt) |
+| [elastic/protections-artifacts](https://github.com/elastic/protections-artifacts) `Linux_*.yar`, `Multi_*.yar` | `955723319e62a7e4095d256355b095a7594ff48c` | 274 | [Elastic License 2.0](rules/elastic/LICENSE.txt) |
 | [Neo23x0/signature-base](https://github.com/Neo23x0/signature-base) Linux/ELF and webshell files | `94a1c48d7ab499879287ff611dfe7f9c56376030` | 51 | [Detection Rule License 1.1](rules/signature-base/LICENSE) |
+| [reversinglabs/reversinglabs-yara-rules](https://github.com/reversinglabs/reversinglabs-yara-rules) `Linux.*` | `e0a0be54aa1e11ccfd6854e4f19e9476f328fd84` | 22 | [MIT](rules/reversinglabs/LICENSE) |
+| [eset/malware-ioc](https://github.com/eset/malware-ioc) Linux/server families | `705ead5a0a86fefae3c2390f91a339852384f438` | 9 | [BSD 2-Clause](rules/eset/LICENSE) |
 
-Vetting: pinned upstream commit, only `.yar` files taken, each file compile-checked on its own with yara-x (in CI),
-upstream files unmodified with authors, references and licenses kept. Every YARA finding states the license of the
-rule that produced it.
+Vetting: pinned upstream commit, only rule files taken, upstream files unmodified with authors, references and
+licenses kept, the whole set compiled at build time (a broken file fails the build), and a **false-positive gate** in
+CI that scans every rule against about 16 000 clean system files and fails on any match. Every YARA finding states the
+license of the rule that produced it.
+
+Your own rules: `--rules FILE` and `--rules-dir DIR` (recursive) load extra `.yar`/`.yara` files at run time; files
+that do not compile are listed under *Limitations* and the scan continues.
 
 ## License
 

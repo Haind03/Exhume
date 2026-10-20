@@ -4,11 +4,33 @@ use crate::core::report::Severity;
 
 include!(concat!(env!("OUT_DIR"), "/embedded_rules.rs"));
 
+/// Rules disabled after false-positive testing (rules/disabled.txt).
+static DISABLED: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/rules/disabled.txt"));
+
+/// Parse the disabled list: (namespace or "*", rule name).
+pub fn parse_disabled(text: &str) -> Vec<(&str, &str)> {
+    text.lines()
+        .map(|l| l.split('#').next().unwrap_or("").trim())
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            Some((it.next()?, it.next()?))
+        })
+        .collect()
+}
+
+pub fn is_disabled(namespace: &str, rule: &str) -> bool {
+    parse_disabled(DISABLED)
+        .iter()
+        .any(|(ns, r)| *r == rule && (*ns == "*" || *ns == namespace))
+}
+
 /// License of each vendored rule source.
 pub fn license(source: &str) -> &'static str {
     match source {
         "elastic" => "Elastic License 2.0 (rules/elastic/LICENSE.txt)",
         "signature-base" => "Detection Rule License 1.1 (rules/signature-base/LICENSE)",
+        "reversinglabs" => "MIT (rules/reversinglabs/LICENSE)",
+        "eset" => "BSD 2-Clause (rules/eset/LICENSE)",
         "custom" => "MIT (Exhume)",
         _ => "user supplied",
     }
@@ -44,7 +66,7 @@ pub fn severity_for(
 
 pub fn counts() -> Vec<(&'static str, usize)> {
     let mut v: Vec<(&'static str, usize)> = Vec::new();
-    for (src, _, _) in EMBEDDED {
+    for (src, _) in EMBEDDED {
         match v.iter_mut().find(|(s, _)| s == src) {
             Some(e) => e.1 += 1,
             None => v.push((src, 1)),
@@ -56,6 +78,19 @@ pub fn counts() -> Vec<(&'static str, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_list() {
+        let t = "# c\nsignature-base/x.yar  Bad_Rule  # fp on bash\n* Other\n\n";
+        assert_eq!(
+            parse_disabled(t),
+            vec![("signature-base/x.yar", "Bad_Rule"), ("*", "Other")]
+        );
+        assert!(!is_disabled(
+            "custom/exhume_linux.yar",
+            "Exhume_Reverse_Shell_Oneliner"
+        ));
+    }
 
     #[test]
     fn severity_mapping() {
@@ -88,14 +123,20 @@ mod tests {
     #[test]
     fn embedded_sources_present() {
         let c = counts();
-        for s in ["custom", "elastic", "signature-base"] {
+        for s in [
+            "custom",
+            "elastic",
+            "signature-base",
+            "reversinglabs",
+            "eset",
+        ] {
             assert!(
                 c.iter().any(|(n, k)| *n == s && *k > 0),
                 "{s} missing: {c:?}"
             );
         }
-        assert!(EMBEDDED.iter().all(
-            |(s, f, _)| !license(s).is_empty() && (f.ends_with(".yar") || f.ends_with(".yara"))
-        ));
+        assert!(EMBEDDED
+            .iter()
+            .all(|(s, f)| !license(s).is_empty() && (f.ends_with(".yar") || f.ends_with(".yara"))));
     }
 }
