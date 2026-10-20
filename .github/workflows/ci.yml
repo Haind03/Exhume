@@ -87,7 +87,13 @@ jobs:
       - name: Scan after planting
         run: sudo target/release/exhume --quiet --no-color --no-pid-bruteforce --min-severity info --json after.json --html coverage.html || [ $? -eq 2 ]
       - name: Coverage report
-        run: python3 -I tests/coverage/evaluate.py tests/coverage/expect.tsv planted/installed.tsv baseline.json after.json "$GITHUB_STEP_SUMMARY"
+        run: |
+          # The planted techniques can change permissions around the runner, so the
+          # summary is written locally first and appended with sudo.
+          rc=0
+          python3 -I tests/coverage/evaluate.py tests/coverage/expect.tsv planted/installed.tsv baseline.json after.json coverage.md || rc=$?
+          [ -f coverage.md ] && sudo tee -a "$GITHUB_STEP_SUMMARY" < coverage.md >/dev/null || true
+          exit $rc
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -96,6 +102,7 @@ jobs:
             baseline.json
             after.json
             coverage.html
+            coverage.md
             planted/
 
   build-musl:

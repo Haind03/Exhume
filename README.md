@@ -301,7 +301,8 @@ What has actually been tested, so the results can be weighed correctly:
   covers 27 techniques (cron, at, systemd, generators, MOTD, rc.local, init.d, udev, XDG, D-Bus, NetworkManager,
   polkit, Git pager and hooks, shell profiles, authorized_keys, sudoers, SUID, capabilities, APT hooks, UID 0 and
   backdoored accounts, GRUB, pam_exec, webshell, wrapped system binaries and `/etc/ld.so.preload`); the table is in
-  the job summary. A locally run subset detected 20 of 20 planted techniques. Not covered by the job: kernel
+  the job summary. On the first CI run PANIX installed 25 of the 27 (its `at` and `pam_exec` modules failed on
+  the runner and are reported as "not planted", not as passes) and Exhume detected all 25. Not covered by the job: kernel
   rootkits and eBPF (PANIX's LKM module needs kernel headers and a kernel that allows loading), malicious
   containers and packages.
 
