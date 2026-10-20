@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-10-20
+
+### Added
+- YARA rules from ReversingLabs (22 `Linux.*` files, MIT) and ESET (9 Linux/server family files: Ebury, Windigo,
+  Kobalos, SSHDoor, Moose, Mozi, Rakos, Mumblehard; BSD 2-Clause), and Elastic's cross-platform `Multi_*` rules
+  (26 files). 357 embedded rule files in total.
+- False-positive gate: every enabled rule is scanned against about 16 000 clean system files in CI; `rules/disabled.txt`
+  lists rules switched off with the reason.
+- `--rules-dir DIR` loads a directory of extra rules (recursive); extra rules compile into a separate set.
+
+### Changed
+- The rule set is compiled at build time and embedded serialized: loading drops from about 1.1 s to 0.3 s per run,
+  and a rule file that does not compile now fails the build.
+- `Exhume_Fileless_Memfd_Loader` now matches on real dynamic imports (`memfd_create` + exec + network) instead of
+  strings, and `Exhume_Script_Memfd_Loader` requires a script; both previously matched libc, strace, valgrind,
+  python and libsystemd-shared.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added

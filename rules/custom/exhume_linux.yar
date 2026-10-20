@@ -1,3 +1,5 @@
+import "elf"
+
 /*
    Exhume custom rules for Linux threat hunting.
    Author: HaiND from the Post and Telecommunication Institute of Technology
@@ -86,26 +88,20 @@ rule Exhume_LKM_Rootkit_Syscall_Hooks
 rule Exhume_Fileless_Memfd_Loader
 {
     meta:
-        description = "ELF that creates an anonymous memfd and executes it (fileless loader)"
+        description = "Dynamically linked ELF that imports memfd_create together with an exec and a network call (fileless loader)"
         author = "HaiND from the Post and Telecommunication Institute of Technology"
         severity = "high"
         mitre = "T1620, T1027.011"
-    strings:
-        $a = "memfd_create" ascii
-        $b1 = "fexecve" ascii
-        $b2 = "execveat" ascii
-        $b3 = "/proc/self/fd/%d" ascii
-        $b4 = "/proc/%d/fd/%d" ascii
-        $d1 = "curl_easy_perform" ascii
-        $d2 = "connect" ascii
-        // Interpreters expose memfd_create/fexecve to scripts; their own binaries are not loaders.
-        $i1 = "Py_Initialize" ascii
-        $i2 = "perl_construct" ascii
-        $i3 = "ruby_init" ascii
-        $i4 = "luaL_newstate" ascii
-        $i5 = "node::" ascii
     condition:
-        uint32(0) == 0x464c457f and filesize < 8MB and $a and 1 of ($b*) and 1 of ($d*) and not any of ($i*)
+        uint32(0) == 0x464c457f and filesize < 8MB
+        // Loaders are small programs; interpreters and big runtimes (python, libsystemd-shared)
+        // legitimately import these functions among hundreds of others.
+        and elf.dynsym_entries < 200
+        // Imported (undefined, shndx 0) symbols only: libc and syscall tables define or merely
+        // name these functions, a loader calls them.
+        and for any s in elf.dynsym : (s.name == "memfd_create" and s.shndx == 0)
+        and for any s in elf.dynsym : ((s.name == "fexecve" or s.name == "execveat" or s.name == "execve" or s.name == "execv") and s.shndx == 0)
+        and for any s in elf.dynsym : ((s.name == "connect" or s.name == "curl_easy_perform" or s.name == "SSL_connect" or s.name == "getaddrinfo") and s.shndx == 0)
 }
 
 rule Exhume_Script_Memfd_Loader
@@ -123,8 +119,16 @@ rule Exhume_Script_Memfd_Loader
         $e2 = "/proc/self/fd/" ascii
         $e3 = "exec {" ascii
         $e4 = "os.fexecve" ascii
+        $s1 = "import os" ascii
+        $s2 = "import ctypes" ascii
+        $s3 = "use POSIX" ascii
+        $s4 = "require 'fiddle'" ascii
     condition:
-        filesize < 5MB and uint32(0) != 0x464c457f and 1 of ($m*) and 1 of ($e*)
+        filesize < 5MB
+        and uint32(0) != 0x464c457f        // not ELF
+        and uint32(0) != 0x72613c21        // not an ar archive (static libraries)
+        and (uint16(0) == 0x2123 or any of ($s*))   // "#!" or interpreter imports
+        and 1 of ($m*) and 1 of ($e*)
 }
 
 rule Exhume_XMRig_Miner
