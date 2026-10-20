@@ -190,26 +190,68 @@ const TRACERS: &[&str] = &[
 ];
 
 /// A traced process (TracerPid != 0). `tracer` is the tracing process name if known.
+/// Processes that handle passwords, keys or authentication tokens in clear text.
+const SECRET_HOLDERS: &[&str] = &[
+    "sshd",
+    "sshd-session",
+    "sshd-auth",
+    "sudo",
+    "su",
+    "login",
+    "passwd",
+    "chpasswd",
+    "ssh",
+    "ssh-agent",
+    "gpg-agent",
+    "gnome-keyring-d",
+    "polkitd",
+    "polkit-agent-he",
+    "pkexec",
+    "kinit",
+    "vault",
+    "keepassxc",
+    "1password",
+    "openvpn",
+];
+
 pub fn tracer_finding(p: &ProcInfo, tracer: Option<&str>) -> Option<Finding> {
     if p.tracer_pid == 0 {
         return None;
     }
     let known = tracer.is_some_and(|t| TRACERS.contains(&t));
-    let sev = if known { Severity::Low } else { Severity::High };
+    let secret = SECRET_HOLDERS.contains(&p.comm.as_str());
+    let (sev, title, why, mitre): (_, _, _, &[&str]) = if secret {
+        (
+            Severity::Critical,
+            "Authentication process is being ptrace-attached (credential capture)",
+            "tracing sshd/sudo/passwd reads passwords and keys as they are typed; strace -p on sshd is a classic credential stealer",
+            &["T1056", "T1055.008", "T1003"],
+        )
+    } else if known {
+        (
+            Severity::Low,
+            "Process is being ptrace-attached",
+            "tracer is a known debugger",
+            &["T1055.008"],
+        )
+    } else {
+        (
+            Severity::High,
+            "Process is being ptrace-attached",
+            "ptrace is used for injection, credential theft from memory, and anti-debugging",
+            &["T1055.008"],
+        )
+    };
     Some(
-        Finding::new(sev, Category::Injection, "Process is being ptrace-attached")
+        Finding::new(sev, Category::Injection, title)
             .proc(p.pid, p.name())
             .detail(format!(
                 "TracerPid {} ({})",
                 p.tracer_pid,
                 tracer.unwrap_or("unknown")
             ))
-            .detail(if known {
-                "tracer is a known debugger"
-            } else {
-                "ptrace is used for injection, credential theft from memory, and anti-debugging"
-            })
-            .mitre(&["T1055.008"]),
+            .detail(why)
+            .mitre(mitre),
     )
 }
 
@@ -280,6 +322,21 @@ mod tests {
             tracer_finding(&x, Some("kthreadd")).unwrap().severity,
             Severity::High
         );
+        let mut sshd = ProcInfo {
+            pid: 7,
+            comm: "sshd".into(),
+            tracer_pid: 99,
+            ..Default::default()
+        };
+        assert_eq!(
+            tracer_finding(&sshd, Some("strace")).unwrap().severity,
+            Severity::Critical
+        );
+        sshd.comm = "sudo".into();
+        assert!(tracer_finding(&sshd, None)
+            .unwrap()
+            .title
+            .contains("credential capture"));
     }
 
     #[test]

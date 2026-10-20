@@ -51,6 +51,59 @@ jobs:
       - name: Scan clean system files with every enabled rule
         run: cargo test --release --locked -- --ignored false_positive --nocapture
 
+  persistence-coverage:
+    name: Persistence coverage (PANIX)
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      # PANIX (MIT) pinned; it plants real persistence, so this only ever runs on a throwaway runner.
+      PANIX_COMMIT: 98e2e502e08b30b6364f798ae77d3f015853260f
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+      - run: cargo build --release --locked
+      - name: Prerequisites for the techniques
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cron at polkitd bc gcc php-cli
+          # The dispatcher technique only needs NetworkManager to look installed; the runner's
+          # networking is left alone.
+          sudo mkdir -p /etc/NetworkManager/dispatcher.d
+          printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/sbin/NetworkManager >/dev/null
+          sudo chmod +x /usr/local/sbin/NetworkManager
+      - name: Keep a clean interpreter for the report
+        # PANIX's suid and cap modules plant on the system python3 itself, so the report runs
+        # on a copy taken before planting (a plain cp drops the SUID bit and capabilities).
+        run: cp "$(readlink -f "$(command -v python3)")" "$RUNNER_TEMP/python3"
+      - name: Baseline scan
+        run: sudo target/release/exhume --quiet --no-color --no-pid-bruteforce --min-severity info --json baseline.json || [ $? -eq 2 ]
+      - name: Plant persistence with PANIX
+        run: |
+          git clone --quiet https://github.com/Aegrah/PANIX panix
+          git -C panix checkout --quiet "$PANIX_COMMIT"
+          sudo bash tests/coverage/panix.sh "$PWD/panix" "$PWD/planted"
+          cat planted/installed.tsv
+      - name: Scan after planting
+        run: sudo target/release/exhume --quiet --no-color --no-pid-bruteforce --min-severity info --json after.json --html coverage.html || [ $? -eq 2 ]
+      - name: Coverage report
+        run: |
+          "$RUNNER_TEMP/python3" -I tests/coverage/evaluate.py tests/coverage/expect.tsv \
+            planted/installed.tsv baseline.json after.json "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: persistence-coverage
+          path: |
+            baseline.json
+            after.json
+            coverage.html
+            planted/
+
   build-musl:
     name: Static musl binary
     needs: test
@@ -94,7 +147,7 @@ jobs:
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && inputs.release)
-    needs: [test, build-musl, yara-false-positives]
+    needs: [test, build-musl, yara-false-positives, persistence-coverage]
     runs-on: ubuntu-latest
     permissions:
       contents: write

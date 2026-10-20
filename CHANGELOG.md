@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-10-20
+
+### Added
+- Persistence: SSH login scripts (`~/.ssh/rc`, `/etc/ssh/sshrc`, `~/.ssh/environment`) and risky sshd options;
+  Git hooks and executing Git settings; Python `.pth` startup hooks; file capabilities (read during the SUID sweep);
+  NetworkManager dispatcher scripts; D-Bus system services; polkit rules and `.pkla` files; GRUB `init=`/`rdinit=`;
+  initramfs and dracut hooks; `ld.so.conf.d` search paths; Apache/nginx modules; yum/dnf plugins; udev rules that
+  start systemd units (`SYSTEMD_WANTS`).
+- Target-script inspection: entries that run a script (systemd ExecStart, D-Bus Exec, cron, pam_exec, udev...) are
+  scored on the content of that script too.
+- ptrace of authentication processes (sshd, sudo, su, passwd, ssh-agent, ...) is Critical (credential capture).
+- Persistence coverage job: real persistence planted with PANIX on a throwaway CI runner, coverage table in the
+  job summary, failures when a planted technique is not detected.
+
+### Fixed
+- Generator, hook and dispatcher scripts are read for content; compiled (ELF) files are no longer read as shell
+  text, which produced a false positive on `systemd-cryptsetup-generator`.
+
 ## [0.3.0] - 2026-10-20
 
 ### Added

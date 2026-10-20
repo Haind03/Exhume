@@ -1,0 +1,28 @@
+# technique	min_severity	title_prefix	needle (in path, title or details)
+cron	high	Cron job	10.10.10.10
+at	low	at job	10.10.10.10
+systemd	high	systemd unit	10.10.10.10
+generator	high	systemd generator	/dev/tcp
+motd	high	MOTD script	/dev/tcp
+rc_local	high	rc.local	/dev/tcp
+initd	high	SysV init script	/dev/tcp
+udev	high	udev rule	systemdtest.service
+xdg	high	XDG autostart	/dev/tcp
+dbus	high	D-Bus service	/dev/tcp
+network_manager	high	NetworkManager dispatcher script	/dev/tcp
+polkit	high	polkit rule	YES
+git_pager	high	Git configuration	core.pager
+git_hook	high	Git hook	/dev/tcp
+shell_profile	high	Shell profile	/dev/tcp
+authorized_keys	low	SSH authorized key	coverage@test
+sudoers	medium	sudoers rule	panixroot
+suid	high	SUID/SGID file	GTFOBins
+cap	critical	File capability	cap_setuid
+package_manager	high	Package manager hook	/dev/tcp
+passwd_user	high	Account	panixpw
+backdoor_user	high	Account	panixroot
+grub	critical	Boot loader configuration	init=
+pam_exec	medium	PAM configuration	pam_exec
+web_shell	high	Possible webshell	.php
+system_binary	critical	Package file fails integrity verification	/
+ld_preload	high	System-wide preload configured	ld.so.preload

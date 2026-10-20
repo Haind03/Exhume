@@ -30,6 +30,19 @@ pub enum Kind {
     Account,
     Motd,
     AptHook,
+    SshRc,
+    SshdConfig,
+    GitHook,
+    GitConfig,
+    PythonStartup,
+    Capability,
+    NetworkDispatcher,
+    DbusService,
+    Polkit,
+    Bootloader,
+    Initramfs,
+    LdConfig,
+    WebServerModule,
 }
 
 impl Kind {
@@ -54,7 +67,20 @@ impl Kind {
             Kind::Suid => "SUID/SGID file",
             Kind::Account => "Account",
             Kind::Motd => "MOTD script",
-            Kind::AptHook => "APT hook",
+            Kind::AptHook => "Package manager hook",
+            Kind::SshRc => "SSH login script",
+            Kind::SshdConfig => "sshd configuration",
+            Kind::GitHook => "Git hook",
+            Kind::GitConfig => "Git configuration",
+            Kind::PythonStartup => "Python startup hook (.pth)",
+            Kind::Capability => "File capability",
+            Kind::NetworkDispatcher => "NetworkManager dispatcher script",
+            Kind::DbusService => "D-Bus service",
+            Kind::Polkit => "polkit rule",
+            Kind::Bootloader => "Boot loader configuration",
+            Kind::Initramfs => "initramfs hook",
+            Kind::LdConfig => "Dynamic linker search path",
+            Kind::WebServerModule => "Web server module",
         }
     }
 
@@ -75,7 +101,18 @@ impl Kind {
             Kind::Suid => &["T1548.001"],
             Kind::Account => &["T1136.001"],
             Kind::Motd => &["T1037"],
-            Kind::AptHook => &["T1546"],
+            Kind::AptHook => &["T1546.016"],
+            Kind::SshRc => &["T1546", "T1098.004"],
+            Kind::SshdConfig => &["T1556", "T1098.004"],
+            Kind::GitHook | Kind::GitConfig => &["T1546"],
+            Kind::PythonStartup => &["T1546.018"],
+            Kind::Capability => &["T1548"],
+            Kind::NetworkDispatcher => &["T1546"],
+            Kind::DbusService => &["T1543", "T1559"],
+            Kind::Polkit => &["T1548"],
+            Kind::Bootloader | Kind::Initramfs => &["T1542", "T1037"],
+            Kind::LdConfig => &["T1574.006"],
+            Kind::WebServerModule => &["T1505"],
         }
     }
 
@@ -83,7 +120,7 @@ impl Kind {
     fn inventory(self) -> bool {
         matches!(
             self,
-            Kind::At | Kind::RcLocal | Kind::AuthorizedKey | Kind::SystemdGenerator
+            Kind::At | Kind::RcLocal | Kind::AuthorizedKey | Kind::SystemdGenerator | Kind::SshRc
         )
     }
 
@@ -102,6 +139,14 @@ impl Kind {
                 | Kind::AptHook
                 | Kind::Suid
                 | Kind::ModuleLoad
+                | Kind::PythonStartup
+                | Kind::Capability
+                | Kind::NetworkDispatcher
+                | Kind::DbusService
+                | Kind::Polkit
+                | Kind::Initramfs
+                | Kind::LdConfig
+                | Kind::WebServerModule
         )
     }
 }
@@ -221,7 +266,10 @@ pub fn score(e: &Entry, now: u64) -> Option<Finding> {
         mitre.extend_from_slice(h.mitre);
     }
     if e.kind != Kind::AuthorizedKey && e.kind != Kind::Account {
-        let target = if e.kind == Kind::Suid || e.kind == Kind::PamModule {
+        let target = if matches!(
+            e.kind,
+            Kind::Suid | Kind::PamModule | Kind::Capability | Kind::WebServerModule
+        ) {
             Some(e.command.clone())
         } else {
             command_target(&e.command)
@@ -420,6 +468,28 @@ pub fn parse_unit(text: &str) -> Vec<(String, String)> {
                 if !v.is_empty() {
                     out.push((k.to_string(), v));
                 }
+            }
+        }
+    }
+    out
+}
+
+/// systemd units a udev rule starts (`ENV{SYSTEMD_WANTS}+="x.service"`, `SYSTEMD_USER_WANTS`).
+pub fn parse_udev_systemd_wants(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for l in text.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+        for part in split_udev_keys(l) {
+            let Some((k, v)) = part.split_once('=') else {
+                continue;
+            };
+            let k = k.trim_end_matches(['+', ':']).trim();
+            if k == "ENV{SYSTEMD_WANTS}" || k == "ENV{SYSTEMD_USER_WANTS}" {
+                out.extend(
+                    v.trim()
+                        .trim_matches('"')
+                        .split_whitespace()
+                        .map(String::from),
+                );
             }
         }
     }
@@ -998,6 +1068,8 @@ mod tests {
         let r = "# c\nACTION==\"add\", SUBSYSTEM==\"net\", RUN+=\"/bin/sh -c 'echo a, b'\"\nKERNEL==\"x\", PROGRAM=\"/usr/bin/foo\", RUN{builtin}+=\"kmod load\"\nACTION==\"add\", IMPORT{program}=\"/tmp/.u\"\n";
         let v = parse_udev(r);
         assert_eq!(v, vec!["/bin/sh -c 'echo a, b'", "/usr/bin/foo", "/tmp/.u"]);
+        let w = parse_udev_systemd_wants("SUBSYSTEM==\"net\", KERNEL!=\"lo\", TAG+=\"systemd\", ENV{SYSTEMD_WANTS}+=\"systemdtest.service\"\n");
+        assert_eq!(w, vec!["systemdtest.service"]);
         let e = Entry::new(
             Kind::Udev,
             "/etc/udev/rules.d/99-x.rules",

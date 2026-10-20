@@ -6,6 +6,7 @@ pub mod injectrules;
 pub mod memrules;
 pub mod netrules;
 pub mod paths;
+pub mod persistext;
 pub mod persistrules;
 pub mod pkgverify;
 pub mod procrules;

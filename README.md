@@ -206,6 +206,7 @@ sudo exhume --lookback 7 --max-runtime 20            # quick triage of recent ch
 | Injection | `LD_PRELOAD` / `LD_AUDIT` in a process environment | Low - Critical | [T1574.006](https://attack.mitre.org/techniques/T1574/006/) |
 | Injection | `/etc/ld.so.preload` present (Critical when the library is invisible or in temp) | High / Critical | [T1574.006](https://attack.mitre.org/techniques/T1574/006/), [T1014](https://attack.mitre.org/techniques/T1014/) |
 | Injection | `TracerPid != 0` by a non-debugger | High | [T1055.008](https://attack.mitre.org/techniques/T1055/008/) |
+| Injection | sshd, sudo, su, passwd, ssh-agent... being traced (credential capture, e.g. `strace -p` on sshd) | Critical | [T1056](https://attack.mitre.org/techniques/T1056/), [T1055.008](https://attack.mitre.org/techniques/T1055/008/) |
 | Rootkit | PID alive per `kill(pid, 0)` but absent from `/proc` (two passes) | Critical | [T1014](https://attack.mitre.org/techniques/T1014/), [T1564](https://attack.mitre.org/techniques/T1564/) |
 | Rootkit | Module in `/proc/kallsyms` but not `/proc/modules` | Critical | [T1014](https://attack.mitre.org/techniques/T1014/), [T1547.006](https://attack.mitre.org/techniques/T1547/006/) |
 | Rootkit | Module in `/sys/module` but not `/proc/modules`, or the reverse | High / Medium | [T1014](https://attack.mitre.org/techniques/T1014/) |
@@ -228,6 +229,15 @@ sudo exhume --lookback 7 --max-runtime 20            # quick triage of recent ch
 | Persistence | APT `Pre-Invoke` / `Post-Invoke` hooks | by content / ownership | [T1546](https://attack.mitre.org/techniques/T1546/) |
 | Persistence | Additional UID 0 accounts | High | [T1136.001](https://attack.mitre.org/techniques/T1136/001/) |
 | Persistence | SUID/SGID: shell-capable copies, world-writable, unpackaged and recent, outside system dirs | Low - Critical | [T1548.001](https://attack.mitre.org/techniques/T1548/001/) |
+| Persistence | File capabilities: root-equivalent caps (`cap_setuid`, `cap_sys_admin`...) on interpreters or unpackaged files | Medium - Critical | [T1548](https://attack.mitre.org/techniques/T1548/) |
+| Persistence | `~/.ssh/rc`, `/etc/ssh/sshrc`, `~/.ssh/environment`; sshd `AuthorizedKeysCommand`, `PermitEmptyPasswords`, `PermitUserEnvironment`, odd `AuthorizedKeysFile` | Low - Critical | [T1098.004](https://attack.mitre.org/techniques/T1098/004/), [T1556](https://attack.mitre.org/techniques/T1556/) |
+| Persistence | Git hooks and executing Git settings (`core.pager`, `core.fsmonitor`, `core.sshCommand`, `!` aliases, `hooksPath`) | by content | [T1546](https://attack.mitre.org/techniques/T1546/) |
+| Persistence | Python `.pth` startup hooks running code | Medium / High | [T1546.018](https://attack.mitre.org/techniques/T1546/018/) |
+| Persistence | NetworkManager dispatcher scripts, D-Bus system services, udev `SYSTEMD_WANTS` units | by content / ownership | [T1546](https://attack.mitre.org/techniques/T1546/), [T1543](https://attack.mitre.org/techniques/T1543/) |
+| Persistence | polkit rules / `.pkla` granting actions to everyone | High | [T1548](https://attack.mitre.org/techniques/T1548/) |
+| Persistence | GRUB `init=` / `rdinit=`, initramfs and dracut hooks | by content / Critical | [T1542](https://attack.mitre.org/techniques/T1542/), [T1037](https://attack.mitre.org/techniques/T1037/) |
+| Persistence | `ld.so.conf.d` paths into temp/hidden dirs; Apache/nginx modules not owned by a package; yum/dnf plugins | High | [T1574.006](https://attack.mitre.org/techniques/T1574/006/), [T1505](https://attack.mitre.org/techniques/T1505/), [T1546.016](https://attack.mitre.org/techniques/T1546/016/) |
+| Persistence | Any entry pointing at a script (ExecStart, D-Bus `Exec`, cron, pam_exec...): the script itself is read for reverse shells and download-and-run | by content | per mechanism |
 | Integrity | Packaged file fails dpkg md5sums / `rpm -V` digest | Critical for binaries, PAM, core libs | [T1554](https://attack.mitre.org/techniques/T1554/) |
 | Webshell | PHP command/code sink fed by `$_GET`/`$_POST`/..., parameter called as a function | Critical | [T1505.003](https://attack.mitre.org/techniques/T1505/003/) |
 | Webshell | Packed `eval(gzinflate(base64_decode(...)))`, `preg_replace /e`, family markers, script in upload dir | Medium / High | [T1505.003](https://attack.mitre.org/techniques/T1505/003/), [T1027](https://attack.mitre.org/techniques/T1027/) |
@@ -284,6 +294,17 @@ manually via *Actions → CI → Run workflow → release*.
 ## Testing status
 
 What has actually been tested, so the results can be weighed correctly:
+
+- **Measured persistence coverage (CI).** Every change runs a job on a throwaway GitHub runner that scans the
+  machine, plants real persistence with [PANIX](https://github.com/Aegrah/PANIX) (pinned commit), scans again and
+  checks that each technique PANIX installed is reported at the expected severity (`tests/coverage/`). The job
+  covers 27 techniques (cron, at, systemd, generators, MOTD, rc.local, init.d, udev, XDG, D-Bus, NetworkManager,
+  polkit, Git pager and hooks, shell profiles, authorized_keys, sudoers, SUID, capabilities, APT hooks, UID 0 and
+  backdoored accounts, GRUB, pam_exec, webshell, wrapped system binaries and `/etc/ld.so.preload`); the table is in
+  the job summary. On the first CI run PANIX installed 25 of the 27 (its `at` and `pam_exec` modules failed on
+  the runner and are reported as "not planted", not as passes) and Exhume detected all 25. Not covered by the job: kernel
+  rootkits and eBPF (PANIX's LKM module needs kernel headers and a kernel that allows loading), malicious
+  containers and packages.
 
 - **Unit tests** cover all pure logic in `src/core` (process, command-line, memory-map, injection, rootkit
   cross-view, taint, eBPF, persistence parsers and scoring, sudoers, PAM, udev, desktop files, authorized_keys,
