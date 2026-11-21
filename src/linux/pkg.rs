@@ -172,7 +172,16 @@ fn replaced_symlinks(div: &HashSet<String>, deep: bool) -> Vec<Finding> {
         }
     }
     let mut out = Vec::new();
-    for f in files.iter().filter(|f| f.ends_with(".list")) {
+    // Packages built without md5sums (third-party debs made with nfpm and similar, such as gh)
+    // say nothing about which paths are symlinks: only packages with an md5sums file count.
+    let with_md5: HashSet<&str> = files
+        .iter()
+        .filter_map(|f| f.strip_suffix(".md5sums"))
+        .collect();
+    for f in files.iter().filter(|f| {
+        f.strip_suffix(".list")
+            .is_some_and(|s| with_md5.contains(s))
+    }) {
         let pkg = f.rsplit('/').next().unwrap_or("").trim_end_matches(".list");
         let t = text(f);
         for p in unhashed_packaged_paths(t.lines(), &hashed, &skip, deep) {

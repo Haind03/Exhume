@@ -88,7 +88,7 @@ jobs:
       - name: Baseline limitations and kernel checks
         # Shows whether tracefs, /dev/kmsg and eBPF were readable on the clean runner.
         run: |
-          python3 -I -c 'import json; d = json.load(open("baseline.json")); print("\n".join(d["limitations"]) or "no limitations"); print("\n".join("%s %s" % (f["severity"], f["title"]) for f in d["findings"] if f["category"] == "rootkit"))'
+          python3 -I -c 'import json; d = json.load(open("baseline.json")); print("\n".join(d.get("limitations", [])) or "no limitations"); print("\n".join("%s %s" % (f["severity"], f["title"]) for f in d["findings"] if f["category"] == "rootkit"))'
           sudo ls /sys/kernel/tracing/enabled_functions && sudo wc -l /sys/kernel/tracing/enabled_functions || true
       - name: Plant persistence with PANIX
         run: |
