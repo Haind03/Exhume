@@ -323,6 +323,12 @@ mod tests {
         // A JavaScript bundle with a seccomp syscall list and an ESM `import os from "os"`.
         let bundle = b"import os from \"os\";\nconst SYSCALLS = [\"memfd_create\", \"execveat\", \"exec {\"];\nmodule.exports = { os };\n";
         assert!(!any_loader(bundle));
+        // A node bundle shipping a seccomp profile and quoted Python (gh-aw-firewall's awf-bundle.js).
+        let node = b"#!/usr/bin/env node\nconst p = {syscalls: [\"execve\", \"memfd_create\"]};\nconst wrapper = [\"#!/bin/sh\", \"set -eu\"];\nconst launch = ['import os', 'import sys', 'os.execv(sys.argv[2], sys.argv[2:])'].join('\\n');\n";
+        assert!(!any_loader(node));
+        // A shell script with a python one-liner loader matches.
+        let sh = b"#!/bin/sh\npython3 -c \"import os;fd=os.memfd_create('x');os.write(fd,open('/tmp/p','rb').read());os.execv('/proc/self/fd/%d'%fd,['x'])\"\n";
+        assert!(any_loader(sh));
         // Perl and ctypes loaders still match.
         let perl = b"#!/usr/bin/perl\nuse POSIX;\nmy $fd = syscall(319, $n, 1);\nopen(my $fh, '>&=', $fd);\nprint $fh $elf;\nexec {\"/proc/$$/fd/$fd\"} 'kworker';\n";
         assert!(any_loader(perl));

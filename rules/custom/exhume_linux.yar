@@ -122,9 +122,13 @@ rule Exhume_Script_Memfd_Loader
         $e4 = "os.fexecve" ascii
         // A call, not the syscall name in a seccomp list.
         $e5 = /execveat\s*\(/ ascii
-        // Python import statements at the start of a line: JavaScript's `import os from "os"` is not one.
-        $s1 = /(^|\n)[ \t]*import (os|ctypes)[ \t]*(\r|\n|,|;|$)/ ascii
-        $s2 = /(^|\n)[ \t]*import [a-z_, ]*\b(os|ctypes)\b[ \t]*(\r|\n|;|$)/ ascii
+        // Python import statements, at the start of a line or of a `python -c` one-liner:
+        // JavaScript's `import os from "os"` and quoted Python inside JS strings are not.
+        $s1 = /(^|\n|-c ["']|;)[ \t]*import (os|ctypes)[ \t]*(\r|\n|,|;|$|["'])/ ascii
+        $s2 = /(^|\n|-c ["']|;)[ \t]*import [a-z_, ]*\b(os|ctypes)\b[ \t]*(\r|\n|;|$|["'])/ ascii
+        // Interpreter line of a script language that has these loaders (not node, which only
+        // carries them as data, e.g. a bundled seccomp profile and quoted Python).
+        $hb = /#![^\n]{0,40}\b(python[0-9.]*|perl|ruby|sh|bash|dash|zsh)\b/ ascii
         $s3 = "use POSIX" ascii
         $s4 = "require 'fiddle'" ascii
         // Interpreter test suites exercise memfd_create + exec on purpose (CPython test_os).
@@ -136,7 +140,7 @@ rule Exhume_Script_Memfd_Loader
         and uint32(0) != 0x464c457f        // not ELF
         and uint32(0) != 0x72613c21        // not an ar archive (static libraries)
         and uint16(2) != 0x0a0d            // not compiled Python bytecode (.pyc: magic, "\r\n")
-        and (uint16(0) == 0x2123 or any of ($s*))   // "#!" or interpreter imports
+        and ($hb at 0 or any of ($s*))     // script interpreter or interpreter imports
         and 1 of ($m*) and 1 of ($e*)
         and not any of ($t*)
 }

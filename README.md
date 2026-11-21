@@ -350,8 +350,8 @@ What has actually been tested, so the results can be weighed correctly:
 
 - **v0.5.0 additions.** The 118 new rule files compile with yara-x and produced no match on 113 539 clean local
   files. In CI the gate scans about 700 000 files on the runner, including its preinstalled toolchains; that
-  corpus found three false positives in Exhume's own rules (PAM 1.7 `pam_unix.so`, CPython's `test_os.py`, a
-  JavaScript bundle listing syscall names), all fixed and covered by tests. Locally, two Tenable ELF-anomaly rules matched a clean Bun single-file executable and are disabled
+  corpus found three false positives in Exhume's own rules (PAM 1.7 `pam_unix.so`, CPython's `test_os.py`,  a
+  Node.js bundle that embeds a seccomp profile and quoted Python), all fixed and covered by tests. Locally, two Tenable ELF-anomaly rules matched a clean Bun single-file executable and are disabled
   (`rules/disabled.txt`). The new rules were not tested against malware samples; their detection quality is the
   upstream authors'. `--ioc` was run live against a planted process (hash of its executable, its name, a domain in
   its command line, an existing path): each indicator was reported once. The `/dev/kmsg` reader was checked live with
