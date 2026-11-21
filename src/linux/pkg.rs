@@ -11,7 +11,8 @@ use rayon::prelude::*;
 use super::{dir_files, read_text};
 use crate::core::paths::usr_aliases;
 use crate::core::pkgverify::{
-    in_scope, mismatch_finding, parse_md5sums, parse_rpm_verify, rpm_tampered,
+    in_scope, mismatch_finding, parse_md5sums, parse_rpm_verify, replaced_symlink_finding,
+    rpm_tampered, unhashed_packaged_paths,
 };
 use crate::core::report::Finding;
 
@@ -123,6 +124,7 @@ pub fn verify(db: &PkgDb, deep: bool) -> (Vec<Finding>, usize) {
 fn verify_dpkg(deep: bool) -> (Vec<Finding>, usize) {
     let div = diversions();
     let mut jobs: Vec<(String, String, String)> = Vec::new();
+    let mut findings = replaced_symlinks(&div, deep);
     for f in dir_files(DPKG_INFO)
         .into_iter()
         .filter(|f| f.ends_with(".md5sums"))
@@ -140,7 +142,7 @@ fn verify_dpkg(deep: bool) -> (Vec<Finding>, usize) {
         }
     }
     let n = jobs.len();
-    let findings = jobs
+    let mismatches: Vec<Finding> = jobs
         .par_iter()
         .filter_map(|(pkg, p, h)| {
             if !super::governor::checkpoint() {
@@ -152,7 +154,58 @@ fn verify_dpkg(deep: bool) -> (Vec<Finding>, usize) {
             })
         })
         .collect();
+    findings.extend(mismatches);
     (findings, n)
+}
+
+/// Packaged symlinks (paths without an md5sums entry) that are regular files now.
+fn replaced_symlinks(div: &HashSet<String>, deep: bool) -> Vec<Finding> {
+    let files = dir_files(DPKG_INFO);
+    let text = |f: &str| read_text(f, 64 << 20).unwrap_or_default();
+    let mut hashed: HashSet<String> = HashSet::new();
+    let mut skip = div.clone();
+    for f in &files {
+        if f.ends_with(".md5sums") {
+            hashed.extend(parse_md5sums(&text(f)).into_iter().map(|(_, p)| p));
+        } else if f.ends_with(".conffiles") {
+            skip.extend(text(f).lines().map(|l| l.trim().to_string()));
+        }
+    }
+    let mut out = Vec::new();
+    for f in files.iter().filter(|f| f.ends_with(".list")) {
+        let pkg = f.rsplit('/').next().unwrap_or("").trim_end_matches(".list");
+        let t = text(f);
+        for p in unhashed_packaged_paths(t.lines(), &hashed, &skip, deep) {
+            let Ok(m) = fs::symlink_metadata(&p) else {
+                continue;
+            };
+            if !m.is_file() {
+                continue;
+            }
+            let mut detail = Vec::new();
+            if let Some(first) = super::read_bytes(&p, 256)
+                .map(|b| {
+                    String::from_utf8_lossy(&b)
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .filter(|l| l.starts_with("#!"))
+            {
+                detail.push(format!("now a script: {first}"));
+            }
+            {
+                use std::os::unix::fs::MetadataExt;
+                detail.push(format!(
+                    "modified: {}",
+                    crate::core::timefmt::iso8601(m.mtime().max(0) as u64)
+                ));
+            }
+            out.push(replaced_symlink_finding(pkg, &p, &detail));
+        }
+    }
+    out
 }
 
 fn verify_rpm(deep: bool) -> (Vec<Finding>, usize) {

@@ -100,6 +100,49 @@ pub fn mismatch_finding(manager: &str, pkg: &str, path: &str, detail: &str) -> F
         .mitre(&["T1554", "T1036.005"])
 }
 
+/// Packaged paths that dpkg has no digest for: in a package, every regular file gets an md5sums
+/// line, so an in-scope `.list` entry without one (and not a conffile or a diverted path) was
+/// shipped as a symlink or a directory. If such a path is now a regular file, the symlink was
+/// replaced: the md5 check cannot see it, which is why it is checked separately. Aliases across
+/// the merged `/usr` count as hashed. Ubuntu 26.04 ships coreutils `cat`, `ls`, ... as symlinks.
+pub fn unhashed_packaged_paths<'a>(
+    listed: impl IntoIterator<Item = &'a str>,
+    hashed: &std::collections::HashSet<String>,
+    skip: &std::collections::HashSet<String>,
+    deep: bool,
+) -> Vec<String> {
+    let mut v: Vec<String> = listed
+        .into_iter()
+        .filter(|p| p.starts_with('/') && in_scope(p, deep) && !skip.contains(*p))
+        .filter(|p| {
+            !super::paths::usr_aliases(p)
+                .iter()
+                .any(|a| hashed.contains(a))
+        })
+        .map(str::to_string)
+        .collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+pub fn replaced_symlink_finding(pkg: &str, path: &str, detail: &[String]) -> Finding {
+    let mut f = Finding::new(
+        mismatch_severity(path),
+        Category::Integrity,
+        "Packaged symlink replaced by a regular file",
+    )
+    .path(path)
+    .detail(format!(
+        "dpkg package: {pkg} ships this path as a symlink (no md5sums entry)"
+    ));
+    for d in detail {
+        f = f.detail(d.clone());
+    }
+    f.detail("replacing a packaged symlink hides a trojanised binary from md5sums checks")
+        .mitre(&["T1554", "T1036.005"])
+}
+
 /// One line of `rpm -V` output: (flags, is_config, path). `missing` lines have flags "missing".
 pub fn parse_rpm_verify(text: &str) -> Vec<(String, bool, String)> {
     text.lines()
@@ -140,6 +183,34 @@ pub fn rpm_tampered(flags: &str, is_config: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unhashed_paths() {
+        use std::collections::HashSet;
+        let hashed: HashSet<String> = ["/usr/bin/coreutils", "/usr/bin/sort", "/usr/share/doc/x"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let skip: HashSet<String> = ["/usr/bin/diverted".to_string()].into();
+        let listed = [
+            "/usr/bin",
+            "/usr/bin/cat",
+            "/usr/bin/coreutils",
+            "/bin/sort",
+            "/usr/bin/diverted",
+            "/usr/share/doc/y",
+            "/usr/lib/x86_64-linux-gnu/libc.so.6",
+        ];
+        let v = unhashed_packaged_paths(listed, &hashed, &skip, false);
+        // /bin/sort is hashed through its /usr alias; the /usr/bin directory and docs are out of
+        // scope by default.
+        assert_eq!(
+            v,
+            vec!["/usr/bin/cat", "/usr/lib/x86_64-linux-gnu/libc.so.6"]
+        );
+        let f = replaced_symlink_finding("rust-coreutils", "/usr/bin/cat", &["#!/bin/bash".into()]);
+        assert_eq!(f.severity, Severity::Critical);
+    }
 
     #[test]
     fn md5sums() {

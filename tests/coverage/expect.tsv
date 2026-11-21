@@ -1,4 +1,4 @@
-# technique	min_severity	title_prefix	needle (in path, title or details)
+# technique	min_severity	title_prefix ("a|b" = either)	needle (in path, title or details)
 cron	high	Cron job	10.10.10.10
 at	low	at job	10.10.10.10
 systemd	high	systemd unit	10.10.10.10
@@ -24,5 +24,5 @@ backdoor_user	high	Account	panixroot
 grub	critical	Boot loader configuration	init=
 pam_exec	medium	PAM configuration	pam_exec
 web_shell	high	Possible webshell	.php
-system_binary	critical	Package file fails integrity verification	/
+system_binary	critical	Package file fails integrity verification|Packaged symlink replaced by a regular file	bin/
 ld_preload	high	System-wide preload configured	ld.so.preload

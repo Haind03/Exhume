@@ -85,6 +85,11 @@ jobs:
         run: cp "$(readlink -f "$(command -v python3)")" "$RUNNER_TEMP/python3"
       - name: Baseline scan
         run: sudo target/release/exhume --quiet --no-color --no-pid-bruteforce --min-severity info --json baseline.json || [ $? -eq 2 ]
+      - name: Baseline limitations and kernel checks
+        # Shows whether tracefs, /dev/kmsg and eBPF were readable on the clean runner.
+        run: |
+          python3 -I -c 'import json; d = json.load(open("baseline.json")); print("\n".join(d["limitations"]) or "no limitations"); print("\n".join("%s %s" % (f["severity"], f["title"]) for f in d["findings"] if f["category"] == "rootkit"))'
+          sudo ls /sys/kernel/tracing/enabled_functions && sudo wc -l /sys/kernel/tracing/enabled_functions || true
       - name: Plant persistence with PANIX
         run: |
           git clone --quiet https://github.com/Aegrah/PANIX panix

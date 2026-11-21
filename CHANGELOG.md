@@ -19,6 +19,9 @@ All notable changes to this project are documented here. The format follows
   hardened-usercopy stops, crashes of privileged programs. `--lookback` applies.
 - `--ioc FILE`: hashes, IPs/CIDRs, domains, paths and names matched against processes, sockets, command lines,
   the text of every finding and the files behind findings.
+- Integrity: a packaged symlink replaced by a regular file is Critical. dpkg keeps no digest for symlinks, so a
+  trojan written over `/usr/bin/cat` on Ubuntu 26.04 (where coreutils are symlinks to rust-coreutils) passed the
+  md5sums check; the persistence coverage job caught this when GitHub's `ubuntu-latest` moved to 26.04.
 - The false-positive gate takes `EXHUME_FP_ROOTS`; CI also scans `/usr/share`, `/usr/local` and `/opt`.
 
 ### Fixed

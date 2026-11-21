@@ -34,7 +34,12 @@ def main():
             rows.append((tech, "not planted (PANIX rc=%s)" % rc, "-"))
             continue
         planted += 1
-        hits = [f for f in after if f["title"].startswith(prefix) and needle in text(f)]
+        # "a|b" accepts either title prefix (one technique can surface in two ways).
+        hits = [
+            f
+            for f in after
+            if any(f["title"].startswith(p) for p in prefix.split("|")) and needle in text(f)
+        ]
         best = max((SEV[f["severity"]] for f in hits), default=-1)
         if best >= SEV[min_sev]:
             top = max(hits, key=lambda f: SEV[f["severity"]])
