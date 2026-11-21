@@ -25,6 +25,8 @@ All notable changes to this project are documented here. The format follows
 - The false-positive gate takes `EXHUME_FP_ROOTS`; CI also scans `/usr/share`, `/usr/local` and `/opt`.
 
 ### Fixed
+- `Exhume_PAM_Backdoor_Module` matched the clean `pam_unix.so` of Ubuntu 26.04 (PAM 1.7): its `user:password`
+  format string now has to be a whole string, not the prefix of the opasswd record `%s:%s:%d:%s`.
 - Release notes list every rule license (MIT, BSD 2/3-Clause and Apache 2.0 were missing).
 
 ## [0.4.0] - 2026-10-20

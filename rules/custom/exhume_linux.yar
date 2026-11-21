@@ -167,7 +167,8 @@ rule Exhume_PAM_Backdoor_Module
         $l2 = "fprintf" ascii
         $k1 = "PAM_AUTHTOK" ascii
         $x1 = /\/(tmp|dev\/shm|var\/tmp|usr\/share\/[a-z]{1,16})\/\.[a-zA-Z0-9_\-]{1,32}/ ascii
-        $x2 = "%s:%s" ascii
+        // A whole "user:password" format string: "%s:%s:%d:%s" (pam_unix's opasswd record) is not.
+        $x2 = /%s:%s\n?\x00/ ascii
     condition:
         uint32(0) == 0x464c457f and filesize < 1MB and all of ($p*) and $s1 and (($l1 and $l2 and $x2) or $x1)
         and not $k1
