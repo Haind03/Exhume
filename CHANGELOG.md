@@ -3,6 +3,37 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-21
+
+### Added
+- YARA: 118 more rule files from SEKOIA (80, DRL 1.1), Volexity (9, BSD 2-Clause), JPCERT/CC (16, BSD 3-Clause),
+  Tenable (8, BSD 3-Clause), Mandiant (2, BSD 2-Clause), Intezer (1, MIT), Trellix (1, Apache 2.0) and bartblaze
+  (1, MIT): Linux backdoors and rootkits, edge-appliance implants (Ivanti, SonicWall, Palo Alto, FortiGate,
+  Barracuda), BRICKSTORM, tunnelling and C2 tools, privilege-escalation exploits and PHP/JSP webshells.
+  475 embedded rule files from 12 sources; signature-base updated to a newer commit.
+- ftrace hook cross-view: callbacks in tracefs `enabled_functions` are attributed to the module that owns them.
+  Hooks owned by a module missing from `/proc/modules` are Critical; modules hooking syscalls or hiding-related
+  functions are High. kprobes on syscalls from `kprobe_events` and debugfs `kprobes/list`.
+- Kernel log indicators from `/dev/kmsg` (kernel records only): unsigned or out-of-tree modules that are no longer
+  listed, `bpf_probe_write_user` programs, `argc == 0` executions (PwnKit), lockdown and Yama denials,
+  hardened-usercopy stops, crashes of privileged programs. `--lookback` applies.
+- `--ioc FILE`: hashes, IPs/CIDRs, domains, paths and names matched against processes, sockets, command lines,
+  the text of every finding and the files behind findings.
+- Integrity: a packaged symlink replaced by a regular file is Critical. dpkg keeps no digest for symlinks, so a
+  trojan written over `/usr/bin/cat` on Ubuntu 26.04 (where coreutils are symlinks to rust-coreutils) passed the
+  md5sums check; the persistence coverage job caught this when GitHub's `ubuntu-latest` moved to 26.04.
+- The false-positive gate takes `EXHUME_FP_ROOTS`; CI also scans `/usr/share`, `/usr/local` and `/opt`.
+
+### Fixed
+- `Exhume_PAM_Backdoor_Module` matched the clean `pam_unix.so` of Ubuntu 26.04 (PAM 1.7): its `user:password`
+  format string now has to be a whole string, not the prefix of the opasswd record `%s:%s:%d:%s`.
+- `Exhume_Script_Memfd_Loader` matched CPython's own `test_os.py` (and its `.pyc`), which exercises
+  `memfd_create` + exec on purpose: test suites and compiled bytecode are excluded. It also matched a Node.js
+  bundle (gh-aw-firewall's `awf-bundle.js`) that embeds a seccomp profile listing `memfd_create` and quoted
+  Python calling `os.execv`: the script must start with a Python/Perl/Ruby/shell interpreter line or contain real
+  Python imports, and `execveat` must be called.
+- Release notes list every rule license (MIT, BSD 2/3-Clause and Apache 2.0 were missing).
+
 ## [0.4.0] - 2026-10-20
 
 ### Added

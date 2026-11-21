@@ -120,17 +120,29 @@ rule Exhume_Script_Memfd_Loader
         $e1 = "os.execv" ascii
         $e3 = "exec {" ascii
         $e4 = "os.fexecve" ascii
-        $e5 = "execveat" ascii
-        $s1 = "import os" ascii
-        $s2 = "import ctypes" ascii
+        // A call, not the syscall name in a seccomp list.
+        $e5 = /execveat\s*\(/ ascii
+        // Python import statements, at the start of a line or of a `python -c` one-liner:
+        // JavaScript's `import os from "os"` and quoted Python inside JS strings are not.
+        $s1 = /(^|\n|-c ["']|;)[ \t]*import (os|ctypes)[ \t]*(\r|\n|,|;|$|["'])/ ascii
+        $s2 = /(^|\n|-c ["']|;)[ \t]*import [a-z_, ]*\b(os|ctypes)\b[ \t]*(\r|\n|;|$|["'])/ ascii
+        // Interpreter line of a script language that has these loaders (not node, which only
+        // carries them as data, e.g. a bundled seccomp profile and quoted Python).
+        $hb = /#![^\n]{0,40}\b(python[0-9.]*|perl|ruby|sh|bash|dash|zsh)\b/ ascii
         $s3 = "use POSIX" ascii
         $s4 = "require 'fiddle'" ascii
+        // Interpreter test suites exercise memfd_create + exec on purpose (CPython test_os).
+        $t1 = "import unittest" ascii
+        $t2 = "unittest.TestCase" ascii
+        $t3 = "from test import support" ascii
     condition:
         filesize < 5MB
         and uint32(0) != 0x464c457f        // not ELF
         and uint32(0) != 0x72613c21        // not an ar archive (static libraries)
-        and (uint16(0) == 0x2123 or any of ($s*))   // "#!" or interpreter imports
+        and uint16(2) != 0x0a0d            // not compiled Python bytecode (.pyc: magic, "\r\n")
+        and ($hb at 0 or any of ($s*))     // script interpreter or interpreter imports
         and 1 of ($m*) and 1 of ($e*)
+        and not any of ($t*)
 }
 
 rule Exhume_XMRig_Miner
@@ -167,7 +179,8 @@ rule Exhume_PAM_Backdoor_Module
         $l2 = "fprintf" ascii
         $k1 = "PAM_AUTHTOK" ascii
         $x1 = /\/(tmp|dev\/shm|var\/tmp|usr\/share\/[a-z]{1,16})\/\.[a-zA-Z0-9_\-]{1,32}/ ascii
-        $x2 = "%s:%s" ascii
+        // A whole "user:password" format string: "%s:%s:%d:%s" (pam_unix's opasswd record) is not.
+        $x2 = /%s:%s\n?\x00/ ascii
     condition:
         uint32(0) == 0x464c457f and filesize < 1MB and all of ($p*) and $s1 and (($l1 and $l2 and $x2) or $x1)
         and not $k1

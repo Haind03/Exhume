@@ -39,6 +39,28 @@ on every finding, and the same report formats.
 - [YARA rules and licenses](#yara-rules-and-licenses)
 - [License](#license)
 
+### Indicators of compromise
+
+`--ioc FILE` (repeatable) matches your own indicators during the hunt. Exhume ships no IOC data. One indicator per
+line, an optional description after `;`, a tab or `,`, and `#` comments. The type is inferred:
+
+```
+# case 2026-117
+275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f;dropper (MD5 and SHA-1 work too)
+203.0.113.0/24;C2 range (single IPv4/IPv6 addresses too)
+update.evil-cdn[.]com;C2 domain (defanged dots accepted, subdomains match)
+/usr/lib/x86_64-linux-gnu/libgc*.so;dropped library (* matches anything)
+kworkerds;miner process name
+```
+
+| Indicator | Matched against | Severity |
+| --- | --- | --- |
+| hash | executables of running processes, every file behind a finding or a YARA target (one read per file, only the algorithms the set uses) | Critical |
+| IP / CIDR | remote end of every socket; command lines; text of every finding (cron lines, unit `ExecStart`, scripts) | Critical / High |
+| domain | command lines and the text of every finding | High |
+| path | exact paths checked on disk; wildcards against every path Exhume came across | Critical when running, else High |
+| name | executable name, `argv[0]` and `comm` of every process | High |
+
 ## Features
 
 - **Fileless and in-memory code**: processes executing from a `memfd` or a deleted file, anonymous executable and
@@ -51,7 +73,13 @@ on every finding, and the same report formats.
 - **Injection**: `LD_PRELOAD` / `LD_AUDIT` in process environments, `/etc/ld.so.preload`, ptrace attachment
   (`TracerPid`). Exhume is statically linked, so a preload rootkit cannot hook Exhume itself.
 - **Rootkit cross-views**: `/proc` listing vs a `kill(pid, 0)` sweep of the whole PID space; `/proc/modules` vs
-  `/sys/module` vs `/proc/kallsyms`; kernel taint flags; loaded eBPF programs mapped to their owner processes.
+  `/sys/module` vs `/proc/kallsyms`; kernel taint flags; loaded eBPF programs mapped to their owner processes;
+  ftrace callbacks (`enabled_functions`) attributed to the module that owns them, so an ftrace-hooking rootkit
+  that unlinked itself from `/proc/modules` is named by its own hooks; kprobes on syscalls.
+- **Kernel log**: the kernel's own `/dev/kmsg` records (user-space writes are ignored, since they can be forged):
+  unsigned or out-of-tree modules that loaded and are no longer listed, eBPF programs using
+  `bpf_probe_write_user`, `argc == 0` executions (PwnKit), lockdown and Yama denials, hardened-usercopy stops,
+  crashes of sudo/pkexec/su and other privileged programs.
 - **Persistence**: cron, anacron, at, systemd services/drop-ins/timers/generators (system and user), rc.local,
   init.d, update-motd.d, shell profiles, SSH `authorized_keys`, sudoers, PAM, udev, XDG autostart, modprobe hooks,
   APT hooks, extra UID 0 accounts, SUID/SGID files, all scored for ownership by a package, location, content
@@ -62,7 +90,10 @@ on every finding, and the same report formats.
 - **Network**: socket inventory mapped to processes via socket inodes, raw/AF_PACKET sniffers (BPFDoor-style
   magic-packet backdoors), sockets owned by suspicious binaries, backdoor ports.
 - **YARA** (yara-x, pure Rust) on suspicious memory regions, suspicious process images (even deleted ones,
-  through `/proc/<pid>/exe`), persistence targets and web scripts, with vetted Elastic and signature-base rules.
+  through `/proc/<pid>/exe`), persistence targets and web scripts, with 475 vetted rule files from 12 public
+  sources (Elastic, signature-base, SEKOIA, ReversingLabs, ESET, Volexity, JPCERT/CC, Tenable, Mandiant,
+  Intezer, Trellix, bartblaze), compiled at build time and gated against false positives in CI.
+- **IOC matching**: your hashes, IPs/CIDRs, domains, paths and names against processes, sockets and findings.
 - **IR friendly**: one static musl binary, no dependencies, parallel per-process scanning, SHA-256 of suspicious
   executables, exit code 2 on High/Critical for scripting, graceful degradation without root.
 
@@ -107,6 +138,7 @@ exhume [OPTIONS]
   --no-yara               skip YARA scanning
   --rules FILE            extra YARA rule file, repeatable
   --rules-dir DIR         directory of extra YARA rules (recursive), repeatable
+  --ioc FILE              indicator file (hashes, IPs/CIDRs, domains, paths, names), repeatable
   --no-pid-bruteforce     skip the kill(pid, 0) sweep of the PID space
   -q, --quiet             no progress messages on stderr
 
@@ -213,6 +245,12 @@ sudo exhume --lookback 7 --max-runtime 20            # quick triage of recent ch
 | Rootkit | Known LKM rootkit name; uncommon unsigned / out-of-tree module | Critical / Medium | [T1547.006](https://attack.mitre.org/techniques/T1547/006/) |
 | Rootkit | Kernel taint flags (forced load/unload, unsigned, out-of-tree) | Info - Medium | [T1547.006](https://attack.mitre.org/techniques/T1547/006/) |
 | Rootkit | eBPF kprobe/tracepoint/tracing/LSM program with an unknown owner; packet-filter programs | Medium / Low | [T1014](https://attack.mitre.org/techniques/T1014/), [T1205.002](https://attack.mitre.org/techniques/T1205/002/) |
+| Rootkit | ftrace hooks owned by a module missing from `/proc/modules` | Critical | [T1014](https://attack.mitre.org/techniques/T1014/), [T1547.006](https://attack.mitre.org/techniques/T1547/006/) |
+| Rootkit | Module hooking syscalls or hiding-related functions (`filldir64`, `tcp4_seq_show`, ...) through ftrace; other module ftrace hooks (live patches Info) | High / Medium | [T1014](https://attack.mitre.org/techniques/T1014/) |
+| Rootkit | kprobes on syscalls or hiding-related functions (Low when kprobe eBPF programs explain them) | Medium / Low | [T1014](https://attack.mitre.org/techniques/T1014/) |
+| Rootkit | Kernel log: unsigned / out-of-tree module loaded and no longer listed | High (Medium / Low while listed) | [T1547.006](https://attack.mitre.org/techniques/T1547/006/), [T1014](https://attack.mitre.org/techniques/T1014/) |
+| Rootkit | Kernel log: `bpf_probe_write_user` program, hardened-usercopy stop, `argc == 0` execution (PwnKit) | High | [T1014](https://attack.mitre.org/techniques/T1014/), [T1068](https://attack.mitre.org/techniques/T1068/) |
+| Rootkit | Kernel log: lockdown denial, Yama ptrace denial, crash of a privileged program, module asking for `kallsyms_lookup_name` | Medium | [T1068](https://attack.mitre.org/techniques/T1068/), [T1055.008](https://attack.mitre.org/techniques/T1055/008/), [T1014](https://attack.mitre.org/techniques/T1014/) |
 | Persistence | cron, `/etc/cron.*` scripts, anacron | by content | [T1053.003](https://attack.mitre.org/techniques/T1053/003/) |
 | Persistence | at jobs | Info+ | [T1053.002](https://attack.mitre.org/techniques/T1053/002/) |
 | Persistence | systemd services, drop-ins, generators (system and user) | by content / ownership | [T1543.002](https://attack.mitre.org/techniques/T1543/002/) |
@@ -239,21 +277,23 @@ sudo exhume --lookback 7 --max-runtime 20            # quick triage of recent ch
 | Persistence | `ld.so.conf.d` paths into temp/hidden dirs; Apache/nginx modules not owned by a package; yum/dnf plugins | High | [T1574.006](https://attack.mitre.org/techniques/T1574/006/), [T1505](https://attack.mitre.org/techniques/T1505/), [T1546.016](https://attack.mitre.org/techniques/T1546/016/) |
 | Persistence | Any entry pointing at a script (ExecStart, D-Bus `Exec`, cron, pam_exec...): the script itself is read for reverse shells and download-and-run | by content | per mechanism |
 | Integrity | Packaged file fails dpkg md5sums / `rpm -V` digest | Critical for binaries, PAM, core libs | [T1554](https://attack.mitre.org/techniques/T1554/) |
+| Integrity | Packaged symlink replaced by a regular file (invisible to md5sums; Ubuntu 26.04 ships coreutils as symlinks) | Critical for binaries, PAM, core libs | [T1554](https://attack.mitre.org/techniques/T1554/), [T1036.005](https://attack.mitre.org/techniques/T1036/005/) |
 | Webshell | PHP command/code sink fed by `$_GET`/`$_POST`/..., parameter called as a function | Critical | [T1505.003](https://attack.mitre.org/techniques/T1505/003/) |
 | Webshell | Packed `eval(gzinflate(base64_decode(...)))`, `preg_replace /e`, family markers, script in upload dir | Medium / High | [T1505.003](https://attack.mitre.org/techniques/T1505/003/), [T1027](https://attack.mitre.org/techniques/T1027/) |
 | Webshell | JSP `Runtime.exec` on request input, `defineClass` on decrypted bytes (Behinder/Godzilla) | Critical | [T1505.003](https://attack.mitre.org/techniques/T1505/003/), [T1620](https://attack.mitre.org/techniques/T1620/) |
 | Network | Unexpected AF_PACKET / raw socket owner | High / Critical | [T1205.002](https://attack.mitre.org/techniques/T1205/002/), [T1040](https://attack.mitre.org/techniques/T1040/) |
 | Network | Listener or connection owned by a memfd/deleted/temp binary | High / Critical | [T1095](https://attack.mitre.org/techniques/T1095/), [T1571](https://attack.mitre.org/techniques/T1571/) |
 | Network | Shell listening on TCP (bind shell); netcat/socat listeners; backdoor ports | Critical / Medium | [T1059.004](https://attack.mitre.org/techniques/T1059/004/), [T1571](https://attack.mitre.org/techniques/T1571/) |
-| YARA | Elastic `Linux_*`, signature-base Linux/ELF and webshell rules, Exhume rules | from rule metadata | per rule |
+| YARA | 475 rule files: Elastic `Linux_*`/`Multi_*`, signature-base, SEKOIA, ReversingLabs, ESET, Volexity, JPCERT/CC, Tenable, Mandiant, Intezer, Trellix, bartblaze, Exhume ([rules/README.md](rules/README.md)) | from rule metadata | per rule |
+| IOC | `--ioc` hashes, IPs/CIDRs, domains, paths and names | High / Critical | - |
 
 ## How it works
 
 ```
 src/core   pure detection logic on plain data: process, memory, injection, rootkit, persistence,
            webshell, network and package rules + report model, JSON and HTML output   (unit-tested)
-src/linux  read-only collectors: /proc, /sys, bpf(2), dpkg/rpm, filesystem walks, yara-x scanning
-rules/     embedded YARA rules (custom, Elastic, signature-base), compiled only when needed
+src/linux  read-only collectors: /proc, /sys, tracefs, /dev/kmsg, bpf(2), dpkg/rpm, filesystem walks, yara-x
+rules/     vetted YARA rules from 12 sources, compiled at build time (rules/README.md)
 ```
 
 - **Read-only.** Process memory is read with `pread` on `/proc/<pid>/mem` (no `ptrace` stop), process existence is
@@ -302,9 +342,24 @@ What has actually been tested, so the results can be weighed correctly:
   polkit, Git pager and hooks, shell profiles, authorized_keys, sudoers, SUID, capabilities, APT hooks, UID 0 and
   backdoored accounts, GRUB, pam_exec, webshell, wrapped system binaries and `/etc/ld.so.preload`); the table is in
   the job summary. On the first CI run PANIX installed 25 of the 27 (its `at` and `pam_exec` modules failed on
-  the runner and are reported as "not planted", not as passes) and Exhume detected all 25. Not covered by the job: kernel
+  the runner and are reported as "not planted", not as passes) and Exhume detected all 25. On the
+  `ubuntu-26.04` runner (v0.5.0) PANIX installed 26 of 27 (`at` still fails) and all 26 were detected; that run is
+  what exposed the replaced-symlink gap (coreutils are symlinks on 26.04) fixed in this release. Not covered by the job: kernel
   rootkits and eBPF (PANIX's LKM module needs kernel headers and a kernel that allows loading), malicious
   containers and packages.
+
+- **v0.5.0 additions.** The 118 new rule files compile with yara-x and produced no match on 113 539 clean local
+  files. In CI the gate scans about 700 000 files on the runner, including its preinstalled toolchains; that
+  corpus found three false positives in Exhume's own rules (PAM 1.7 `pam_unix.so`, CPython's `test_os.py`,  a
+  Node.js bundle that embeds a seccomp profile and quoted Python), all fixed and covered by tests. Locally, two Tenable ELF-anomaly rules matched a clean Bun single-file executable and are disabled
+  (`rules/disabled.txt`). The new rules were not tested against malware samples; their detection quality is the
+  upstream authors'. `--ioc` was run live against a planted process (hash of its executable, its name, a domain in
+  its command line, an existing path): each indicator was reported once. The `/dev/kmsg` reader was checked live with
+  records written from user space, before the kernel-records-only filter was added; the classification of kernel
+  messages is unit-tested on their exact kernel formats. ftrace and kprobe parsing is covered by unit tests on the kernel's
+  `enabled_functions` and `kprobes/list` formats; the test VM has no tracefs, and no real ftrace rootkit was loaded.
+  On the clean CI runner (root, Ubuntu 26.04) the baseline scan reported no limitations (tracefs, `/dev/kmsg` and
+  eBPF readable), `enabled_functions` held 4 hooks with no module owner, and neither check produced a finding.
 
 - **Unit tests** cover all pure logic in `src/core` (process, command-line, memory-map, injection, rootkit
   cross-view, taint, eBPF, persistence parsers and scoring, sudoers, PAM, udev, desktop files, authorized_keys,
@@ -338,6 +393,10 @@ What has actually been tested, so the results can be weighed correctly:
 - **Package integrity** depends on the package database being trustworthy; an attacker with root can rewrite
   md5sums. Configuration files (conffiles) and missing documentation files are not reported.
 - **rpm** verification shells out to `/usr/bin/rpm`; dpkg verification is native.
+- **ftrace/kprobe checks** need tracefs mounted (`/sys/kernel/tracing`); Exhume never mounts it. A rootkit can
+  filter `enabled_functions` itself; the check raises the cost of hiding, as the other cross-views do.
+- **Kernel log** findings only cover records still in the ring buffer (since boot, or until it wrapped), and need
+  `CAP_SYSLOG` when `kernel.dmesg_restrict` is set.
 - **eBPF enumeration** needs `CAP_SYS_ADMIN`/`CAP_BPF`; classic BPF socket filters (`SO_ATTACH_FILTER`) have no
   program ID and are covered only indirectly through the AF_PACKET/raw socket owner check.
 - **YARA** scans at most 64 MiB per region/file (256 MiB with `--deep`) and only targets selected as suspicious in
@@ -347,20 +406,28 @@ What has actually been tested, so the results can be weighed correctly:
 
 ## YARA rules and licenses
 
-Exhume embeds five rule sets, compiled at build time; full provenance and the vetting procedure are in
+Exhume embeds 475 rule files from twelve sources, compiled at build time; full provenance and the vetting procedure are in
 [rules/README.md](rules/README.md).
 
 | Source | Upstream commit | Files | License |
 | --- | --- | --- | --- |
 | Exhume custom rules (`rules/custom`) | - | 1 | MIT |
 | [elastic/protections-artifacts](https://github.com/elastic/protections-artifacts) `Linux_*.yar`, `Multi_*.yar` | `955723319e62a7e4095d256355b095a7594ff48c` | 274 | [Elastic License 2.0](rules/elastic/LICENSE.txt) |
-| [Neo23x0/signature-base](https://github.com/Neo23x0/signature-base) Linux/ELF and webshell files | `94a1c48d7ab499879287ff611dfe7f9c56376030` | 51 | [Detection Rule License 1.1](rules/signature-base/LICENSE) |
+| [Neo23x0/signature-base](https://github.com/Neo23x0/signature-base) Linux/ELF and webshell files | `78d979eef87786a613659ee82e55abdd45572a78` | 51 | [Detection Rule License 1.1](rules/signature-base/LICENSE) |
 | [reversinglabs/reversinglabs-yara-rules](https://github.com/reversinglabs/reversinglabs-yara-rules) `Linux.*` | `e0a0be54aa1e11ccfd6854e4f19e9476f328fd84` | 22 | [MIT](rules/reversinglabs/LICENSE) |
 | [eset/malware-ioc](https://github.com/eset/malware-ioc) Linux/server families | `705ead5a0a86fefae3c2390f91a339852384f438` | 9 | [BSD 2-Clause](rules/eset/LICENSE) |
+| [SEKOIA-IO/Community](https://github.com/SEKOIA-IO/Community) ELF, cross-platform tooling and webshell rules | `ae52d3fed661f7459c3877fec630e66a1771d5d0` | 80 | [Detection Rule License 1.1](rules/sekoia/LICENSE.md) |
+| [volexity/threat-intel](https://github.com/volexity/threat-intel) Linux, edge-appliance and webshell reports | `683296427d8c7f08938ce6c587f618c938cf4c54` | 9 | [BSD 2-Clause](rules/volexity/LICENSE.txt) |
+| [JPCERTCC/jpcert-yara](https://github.com/JPCERTCC/jpcert-yara) webshells, appliance implants, Linux families | `7837438e7bcb100bcc7f9d2be09152b19d967c0c` | 16 | [BSD 3-Clause](rules/jpcert/LICENSE) |
+| [tenable/yara-rules](https://github.com/tenable/yara-rules) ELF anomalies, Linux malware, webshells | `e7e0a8947c3a798ee2f2b44f0c1b6fd0f8a0daba` | 8 | [BSD 3-Clause](rules/tenable/LICENSE.md) |
+| [mandiant/red_team_tool_countermeasures](https://github.com/mandiant/red_team_tool_countermeasures) REDFLARE Linux | `3561b71724dbfa3e2bb78106aaa2d7f8b892c43b` | 2 | [BSD 2-Clause](rules/mandiant/LICENSE.txt) |
+| [intezer/yara-rules](https://github.com/intezer/yara-rules) EvilGnome | `e83de8d7143607c2c056f6c2d0a494a001b4dbfa` | 1 | [MIT](rules/intezer/LICENSE) |
+| [advanced-threat-research/Yara-Rules](https://github.com/advanced-threat-research/Yara-Rules) HelloKitty Linux | `1919562a59f190bda60c982424f6a24c542ee3e0` | 1 | [Apache 2.0](rules/trellix/LICENSE) |
+| [bartblaze/Yara-rules](https://github.com/bartblaze/Yara-rules) webshell in image | `5cc871d82361de8a80d387ec8bbd01fe4258b4a9` | 1 | [MIT](rules/bartblaze/LICENSE) |
 
 Vetting: pinned upstream commit, only rule files taken, upstream files unmodified with authors, references and
 licenses kept, the whole set compiled at build time (a broken file fails the build), and a **false-positive gate** in
-CI that scans every rule against about 16 000 clean system files and fails on any match. Every YARA finding states the
+CI that scans every rule against the runner's system files and preinstalled toolchains and fails on any match. Every YARA finding states the
 license of the rule that produced it.
 
 Your own rules: `--rules FILE` and `--rules-dir DIR` (recursive) load extra `.yar`/`.yara` files at run time; files

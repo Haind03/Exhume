@@ -35,7 +35,7 @@ mod app {
     use crate::core::{
         injectrules, memrules, netrules, persistrules, procrules, timefmt, webshell, ProcInfo,
     };
-    use crate::linux::{self, governor, mem, net, persist, pkg, procs, rootkit, suid, web};
+    use crate::linux::{self, governor, kernel, mem, net, persist, pkg, procs, rootkit, suid, web};
 
     #[derive(Parser, Debug)]
     #[command(
@@ -69,6 +69,9 @@ mod app {
         /// Directory of extra YARA rules (*.yar, *.yara, recursive), repeatable
         #[arg(long = "rules-dir", value_name = "DIR")]
         rules_dir: Vec<String>,
+        /// Indicator file (hashes, IPs/CIDRs, domains, paths, names; one per line), repeatable
+        #[arg(long = "ioc", value_name = "FILE")]
+        ioc: Vec<String>,
         /// Skip the kill(pid, 0) brute force over the whole PID space
         #[arg(long)]
         no_pid_bruteforce: bool,
@@ -243,7 +246,38 @@ mod app {
                 .filter(|m| *m > 0)
                 .map(|m| std::time::Duration::from_secs(m * 60)),
         );
+        let mut ioc = crate::core::ioc::IocSet::default();
+        for f in &args.ioc {
+            match std::fs::read_to_string(f) {
+                Ok(t) => ioc.add_text(f, &t),
+                Err(e) => {
+                    eprintln!("cannot read IOC file {f}: {e}");
+                    return 1;
+                }
+            }
+        }
+        if !ioc.rejected.is_empty() {
+            report.limitations.push(format!(
+                "{} IOC lines not understood (first: {} \"{}\")",
+                ioc.rejected.len(),
+                ioc.rejected[0].0,
+                ioc.rejected[0].1
+            ));
+        }
+        if !ioc.is_empty() {
+            let c: Vec<String> = ioc
+                .counts()
+                .iter()
+                .map(|(k, n)| format!("{n} {k}"))
+                .collect();
+            ui.step(&format!(
+                "loaded {} indicators ({})",
+                ioc.iocs.len(),
+                c.join(", ")
+            ));
+        }
         let opts = Opts {
+            ioc,
             deep,
             pid_sweep: !args.no_pid_bruteforce && !soft,
             lookback: args.lookback,
@@ -356,6 +390,7 @@ mod app {
 
     /// Scan-wide options after soft mode and defaults are applied.
     struct Opts {
+        ioc: crate::core::ioc::IocSet,
         deep: bool,
         pid_sweep: bool,
         lookback: Option<u64>,
@@ -488,6 +523,14 @@ mod app {
         }
         findings.extend(integ.0);
 
+        if !o.ioc.is_empty() {
+            ui.step("matching indicators of compromise");
+            let f = ph.time("indicators", || {
+                ioc_phase(&o.ioc, &procs, report, &findings, &targets)
+            });
+            findings.extend(f);
+        }
+
         // ---- YARA
         #[cfg(feature = "yara")]
         if !args.no_yara {
@@ -503,6 +546,156 @@ mod app {
                 .push("built without the yara feature".into());
         }
         findings
+    }
+
+    /// IOC matching: processes and sockets, the text of every finding so far, indicator paths on
+    /// disk, and (when the set has hashes) the files behind processes and findings.
+    fn ioc_phase(
+        set: &crate::core::ioc::IocSet,
+        procs: &[ProcInfo],
+        report: &Report,
+        findings: &[Finding],
+        targets: &Targets,
+    ) -> Vec<Finding> {
+        use crate::core::ioc::{self, Kind};
+        let mut out = ioc::process_findings(set, procs, &report.sockets);
+        out.extend(ioc::text_findings(set, findings));
+        // Exact paths are checked on disk; wildcard paths against every path we know about.
+        let mut known: Vec<String> = findings.iter().filter_map(|f| f.path.clone()).collect();
+        known.extend(targets.files.iter().map(|(p, _)| p.clone()));
+        for i in set.by_kind(Kind::Path) {
+            if !i.value.contains('*') {
+                if std::fs::symlink_metadata(&i.value).is_ok() {
+                    out.push(
+                        ioc::finding(
+                            i,
+                            Severity::High,
+                            Category::Integrity,
+                            &format!("file exists: {}", i.value),
+                        )
+                        .path(i.value.clone()),
+                    );
+                }
+            } else if let Some(p) = known.iter().find(|p| ioc::glob(&i.value, p)) {
+                out.push(
+                    ioc::finding(i, Severity::High, Category::Integrity, &format!("file {p}"))
+                        .path(p.clone()),
+                );
+            }
+        }
+        if set.wants_hashes() {
+            let (md5, sha1, sha256) = set.hash_kinds();
+            let mut files: Vec<(String, Option<(u32, String)>)> = procs
+                .iter()
+                .filter(|p| !p.kthread && p.exe.is_some())
+                .map(|p| {
+                    (
+                        format!("/proc/{}/exe", p.pid),
+                        Some((p.pid, p.comm.clone())),
+                    )
+                })
+                .collect();
+            files.extend(
+                known
+                    .iter()
+                    .filter(|p| p.starts_with('/'))
+                    .map(|p| (p.clone(), None)),
+            );
+            // One hash per file (device + inode), keeping a process that runs it over a bare path.
+            let mut seen = std::collections::HashSet::new();
+            files.retain(|(p, _)| {
+                std::fs::metadata(p)
+                    .map(|m| {
+                        use std::os::unix::fs::MetadataExt;
+                        m.is_file() && seen.insert((m.dev(), m.ino()))
+                    })
+                    .unwrap_or(false)
+            });
+            let hits: Vec<Finding> = files
+                .par_iter()
+                .filter_map(|(path, owner)| {
+                    if !governor::checkpoint() {
+                        return None;
+                    }
+                    let hashes = hash_file(path, md5, sha1, sha256)?;
+                    let i = hashes.iter().find_map(|h| set.hash(h))?;
+                    let shown = match owner {
+                        Some((pid, _)) => procs
+                            .iter()
+                            .find(|p| p.pid == *pid)
+                            .and_then(|p| p.exe.clone())
+                            .unwrap_or_else(|| path.clone()),
+                        None => path.clone(),
+                    };
+                    let mut f = ioc::finding(
+                        i,
+                        Severity::Critical,
+                        if owner.is_some() {
+                            Category::Process
+                        } else {
+                            Category::Integrity
+                        },
+                        &format!("file hash of {shown}"),
+                    )
+                    .path(shown);
+                    if let Some((pid, comm)) = owner {
+                        f = f.proc(*pid, comm);
+                    }
+                    Some(f)
+                })
+                .collect();
+            out.extend(hits);
+        }
+        // One finding per indicator and process (or path): a command line match also shows up
+        // in the text of that process's other findings.
+        let mut seen = std::collections::HashSet::new();
+        out.retain(|f| {
+            let ind = f.details.first().cloned().unwrap_or_default();
+            let at = f.pid.map(|p| format!("pid {p}")).or_else(|| f.path.clone());
+            seen.insert((ind, at))
+        });
+        out
+    }
+
+    /// The requested digests of a regular file, read once.
+    fn hash_file(path: &str, md5: bool, sha1: bool, sha256: bool) -> Option<Vec<String>> {
+        use std::io::Read;
+        let mut file = linux::open_regular(path).ok()?;
+        let mut m = md5.then(md5::Md5::new);
+        let mut s1 = sha1.then(sha1::Sha1::new);
+        let mut s2 = sha256.then(Sha256::new);
+        let mut buf = vec![0u8; 1 << 20];
+        let mut total = 0usize;
+        loop {
+            let n = file.read(&mut buf).ok()?;
+            if n == 0 {
+                break;
+            }
+            total += n;
+            if total > 512 << 20 {
+                return None;
+            }
+            if let Some(h) = m.as_mut() {
+                h.update(&buf[..n]);
+            }
+            if let Some(h) = s1.as_mut() {
+                h.update(&buf[..n]);
+            }
+            if let Some(h) = s2.as_mut() {
+                h.update(&buf[..n]);
+            }
+        }
+        let mut v = Vec::new();
+        if let Some(h) = m {
+            v.push(format!("{:x}", h.finalize()));
+        }
+        if let Some(h) = s1 {
+            v.push(format!("{:x}", h.finalize()));
+        }
+        if let Some(h) = s2 {
+            v.push(format!("{:x}", h.finalize()));
+        }
+        Some(v)
     }
 
     fn rootkit_phase(ui: &Ui, o: &Opts, root: bool) -> (Vec<Finding>, Vec<String>) {
@@ -524,12 +717,34 @@ mod app {
         );
         out.extend(hidden);
         out.extend(kernel);
+        let mut bpf_kprobes = false;
         match rootkit::bpf_programs() {
-            Ok(p) => out.extend(crate::core::rootkit::bpf_findings(&p)),
+            Ok(p) => {
+                bpf_kprobes = p
+                    .iter()
+                    .any(|b| crate::core::rootkit::bpf_type_name(b.prog_type) == "kprobe");
+                out.extend(crate::core::rootkit::bpf_findings(&p))
+            }
             Err(e) if rootkit::bpf_available() => {
                 limits.push(format!("eBPF programs not enumerated: {e}"))
             }
             Err(_) => {}
+        }
+        let ((hooks, hook_limits), (klog, klog_limits)) = rayon::join(
+            || kernel::hooks(bpf_kprobes),
+            || {
+                let since = o
+                    .lookback
+                    .filter(|d| *d > 0)
+                    .map(|d| linux::now().saturating_sub(d * 86_400));
+                kernel::kernel_log(since)
+            },
+        );
+        out.extend(hooks);
+        out.extend(klog);
+        limits.extend(hook_limits);
+        if root {
+            limits.extend(klog_limits);
         }
         ui.step("rootkit cross-views done");
         (out, limits)

@@ -3,6 +3,8 @@
 
 pub mod html;
 pub mod injectrules;
+pub mod ioc;
+pub mod kernelrules;
 pub mod memrules;
 pub mod netrules;
 pub mod paths;

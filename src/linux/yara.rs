@@ -314,6 +314,26 @@ mod tests {
             .unwrap()
             .matching_rules()
             .any(|r| r.identifier() == "Exhume_Script_Memfd_Loader"));
+        let any_loader = |d: &[u8]| {
+            let mut s = yara_x::Scanner::new(&e.rules);
+            let r = s.scan(d).unwrap();
+            r.matching_rules()
+                .any(|r| r.identifier() == "Exhume_Script_Memfd_Loader")
+        };
+        // A JavaScript bundle with a seccomp syscall list and an ESM `import os from "os"`.
+        let bundle = b"import os from \"os\";\nconst SYSCALLS = [\"memfd_create\", \"execveat\", \"exec {\"];\nmodule.exports = { os };\n";
+        assert!(!any_loader(bundle));
+        // A node bundle shipping a seccomp profile and quoted Python (gh-aw-firewall's awf-bundle.js).
+        let node = b"#!/usr/bin/env node\nconst p = {syscalls: [\"execve\", \"memfd_create\"]};\nconst wrapper = [\"#!/bin/sh\", \"set -eu\"];\nconst launch = ['import os', 'import sys', 'os.execv(sys.argv[2], sys.argv[2:])'].join('\\n');\n";
+        assert!(!any_loader(node));
+        // A shell script with a python one-liner loader matches.
+        let sh = b"#!/bin/sh\npython3 -c \"import os;fd=os.memfd_create('x');os.write(fd,open('/tmp/p','rb').read());os.execv('/proc/self/fd/%d'%fd,['x'])\"\n";
+        assert!(any_loader(sh));
+        // Perl and ctypes loaders still match.
+        let perl = b"#!/usr/bin/perl\nuse POSIX;\nmy $fd = syscall(319, $n, 1);\nopen(my $fh, '>&=', $fd);\nprint $fh $elf;\nexec {\"/proc/$$/fd/$fd\"} 'kworker';\n";
+        assert!(any_loader(perl));
+        let ct = b"import sys, ctypes\nlibc = ctypes.CDLL(None)\nfd = libc.memfd_create(b'x', 0)\nlibc.execveat(fd, b'', argv, envp, 0x1000)\n";
+        assert!(any_loader(ct));
         // google-auth keeps TLS keys in a memfd and passes /proc/self/fd/N to OpenSSL: no exec.
         let tls = b"import os\nfd = os.memfd_create(name, os.MFD_CLOEXEC)\nos.write(fd, key)\npaths.append(f\"/proc/self/fd/{fd}\")\n";
         assert!(!s2
@@ -330,8 +350,10 @@ mod tests {
     fn false_positive_clean_system_files() {
         use crate::linux::walk::{par_walk, Walk};
         let Ok(e) = engine(&[]) else { panic!() };
-        let roots: Vec<String> = ["/usr/bin", "/usr/sbin", "/usr/lib", "/usr/libexec", "/etc"]
-            .iter()
+        // EXHUME_FP_ROOTS (colon-separated) widens or replaces the corpus.
+        let roots: Vec<String> = std::env::var("EXHUME_FP_ROOTS")
+            .unwrap_or_else(|_| "/usr/bin:/usr/sbin:/usr/lib:/usr/libexec:/etc".into())
+            .split(':')
             .filter(|r| std::path::Path::new(r).exists())
             .map(|r| r.to_string())
             .collect();
@@ -343,7 +365,7 @@ mod tests {
             &roots,
             &Walk {
                 max_depth: 12,
-                limit: 200_000,
+                limit: 1_000_000,
                 skip_dir: &skip,
                 visit: &visit,
             },

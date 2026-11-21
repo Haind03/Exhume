@@ -13,6 +13,14 @@ const SOURCES: &[&str] = &[
     "signature-base",
     "reversinglabs",
     "eset",
+    "sekoia",
+    "volexity",
+    "tenable",
+    "jpcert",
+    "mandiant",
+    "intezer",
+    "trellix",
+    "bartblaze",
 ];
 
 fn rule_files(root: &Path) -> Vec<(String, String, PathBuf)> {
@@ -51,11 +59,22 @@ fn main() {
     compile(&files, &out_dir);
 }
 
+/// Upstream files that use a module without importing it. The file stays an unmodified copy;
+/// the import is supplied at compile time.
+#[cfg(feature = "yara")]
+const MISSING_IMPORTS: &[(&str, &str)] =
+    &[("volexity/2022-06-15_DriftingCloud_Sophos.yar", "math")];
+
 #[cfg(feature = "yara")]
 fn compile(files: &[(String, String, PathBuf)], out_dir: &Path) {
     let mut c = yara_x::Compiler::new();
     for (src, name, path) in files {
-        let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let mut text =
+            fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let id = format!("{src}/{name}");
+        for (_, module) in MISSING_IMPORTS.iter().filter(|(f, _)| *f == id) {
+            text.insert_str(0, &format!("import \"{module}\"\n"));
+        }
         c.new_namespace(&format!("{src}/{name}"));
         if let Err(e) = c.add_source(text.as_str()) {
             panic!("YARA rule file {src}/{name} does not compile:\n{e}");

@@ -1,3 +1,5 @@
 # Rules switched off after false-positive testing on clean system files.
 # Format: <rule file namespace> <rule name>   # reason
 # The namespace is "<source>/<file>" as shown in a YARA finding's "rule file:" detail; "*" matches any file.
+tenable/elf_format.yar fake_section_headers_conflicting_entry_point_address   # matched a clean Bun single-file executable (runtime with an appended payload)
+tenable/elf_format.yar fake_dynamic_symbols   # matched the same clean Bun single-file executable
