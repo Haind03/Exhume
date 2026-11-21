@@ -314,6 +314,20 @@ mod tests {
             .unwrap()
             .matching_rules()
             .any(|r| r.identifier() == "Exhume_Script_Memfd_Loader"));
+        let any_loader = |d: &[u8]| {
+            let mut s = yara_x::Scanner::new(&e.rules);
+            let r = s.scan(d).unwrap();
+            r.matching_rules()
+                .any(|r| r.identifier() == "Exhume_Script_Memfd_Loader")
+        };
+        // A JavaScript bundle with a seccomp syscall list and an ESM `import os from "os"`.
+        let bundle = b"import os from \"os\";\nconst SYSCALLS = [\"memfd_create\", \"execveat\", \"exec {\"];\nmodule.exports = { os };\n";
+        assert!(!any_loader(bundle));
+        // Perl and ctypes loaders still match.
+        let perl = b"#!/usr/bin/perl\nuse POSIX;\nmy $fd = syscall(319, $n, 1);\nopen(my $fh, '>&=', $fd);\nprint $fh $elf;\nexec {\"/proc/$$/fd/$fd\"} 'kworker';\n";
+        assert!(any_loader(perl));
+        let ct = b"import sys, ctypes\nlibc = ctypes.CDLL(None)\nfd = libc.memfd_create(b'x', 0)\nlibc.execveat(fd, b'', argv, envp, 0x1000)\n";
+        assert!(any_loader(ct));
         // google-auth keeps TLS keys in a memfd and passes /proc/self/fd/N to OpenSSL: no exec.
         let tls = b"import os\nfd = os.memfd_create(name, os.MFD_CLOEXEC)\nos.write(fd, key)\npaths.append(f\"/proc/self/fd/{fd}\")\n";
         assert!(!s2

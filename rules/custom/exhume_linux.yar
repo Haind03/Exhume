@@ -120,9 +120,11 @@ rule Exhume_Script_Memfd_Loader
         $e1 = "os.execv" ascii
         $e3 = "exec {" ascii
         $e4 = "os.fexecve" ascii
-        $e5 = "execveat" ascii
-        $s1 = "import os" ascii
-        $s2 = "import ctypes" ascii
+        // A call, not the syscall name in a seccomp list.
+        $e5 = /execveat\s*\(/ ascii
+        // Python import statements at the start of a line: JavaScript's `import os from "os"` is not one.
+        $s1 = /(^|\n)[ \t]*import (os|ctypes)[ \t]*(\r|\n|,|;|$)/ ascii
+        $s2 = /(^|\n)[ \t]*import [a-z_, ]*\b(os|ctypes)\b[ \t]*(\r|\n|;|$)/ ascii
         $s3 = "use POSIX" ascii
         $s4 = "require 'fiddle'" ascii
         // Interpreter test suites exercise memfd_create + exec on purpose (CPython test_os).

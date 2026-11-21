@@ -28,7 +28,9 @@ All notable changes to this project are documented here. The format follows
 - `Exhume_PAM_Backdoor_Module` matched the clean `pam_unix.so` of Ubuntu 26.04 (PAM 1.7): its `user:password`
   format string now has to be a whole string, not the prefix of the opasswd record `%s:%s:%d:%s`.
 - `Exhume_Script_Memfd_Loader` matched CPython's own `test_os.py` (and its `.pyc`), which exercises
-  `memfd_create` + exec on purpose: test suites and compiled bytecode are excluded.
+  `memfd_create` + exec on purpose: test suites and compiled bytecode are excluded. It also matched a JavaScript
+  bundle listing `memfd_create`/`execveat` in a seccomp profile next to an ESM `import os from "os"`: the
+  interpreter imports must be Python import statements and `execveat` must be called.
 - Release notes list every rule license (MIT, BSD 2/3-Clause and Apache 2.0 were missing).
 
 ## [0.4.0] - 2026-10-20

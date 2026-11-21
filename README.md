@@ -342,18 +342,24 @@ What has actually been tested, so the results can be weighed correctly:
   polkit, Git pager and hooks, shell profiles, authorized_keys, sudoers, SUID, capabilities, APT hooks, UID 0 and
   backdoored accounts, GRUB, pam_exec, webshell, wrapped system binaries and `/etc/ld.so.preload`); the table is in
   the job summary. On the first CI run PANIX installed 25 of the 27 (its `at` and `pam_exec` modules failed on
-  the runner and are reported as "not planted", not as passes) and Exhume detected all 25. Not covered by the job: kernel
+  the runner and are reported as "not planted", not as passes) and Exhume detected all 25. On the
+  `ubuntu-26.04` runner (v0.5.0) PANIX installed 26 of 27 (`at` still fails) and all 26 were detected; that run is
+  what exposed the replaced-symlink gap (coreutils are symlinks on 26.04) fixed in this release. Not covered by the job: kernel
   rootkits and eBPF (PANIX's LKM module needs kernel headers and a kernel that allows loading), malicious
   containers and packages.
 
-- **v0.5.0 additions.** The 118 new rule files compile with yara-x and produced no match on 111 298 clean local
-  files; two Tenable ELF-anomaly rules matched a clean Bun single-file executable and are disabled
+- **v0.5.0 additions.** The 118 new rule files compile with yara-x and produced no match on 113 539 clean local
+  files. In CI the gate scans about 700 000 files on the runner, including its preinstalled toolchains; that
+  corpus found three false positives in Exhume's own rules (PAM 1.7 `pam_unix.so`, CPython's `test_os.py`, a
+  JavaScript bundle listing syscall names), all fixed and covered by tests. Locally, two Tenable ELF-anomaly rules matched a clean Bun single-file executable and are disabled
   (`rules/disabled.txt`). The new rules were not tested against malware samples; their detection quality is the
   upstream authors'. `--ioc` was run live against a planted process (hash of its executable, its name, a domain in
   its command line, an existing path): each indicator was reported once. The `/dev/kmsg` reader was checked live with
   records written from user space, before the kernel-records-only filter was added; the classification of kernel
   messages is unit-tested on their exact kernel formats. ftrace and kprobe parsing is covered by unit tests on the kernel's
   `enabled_functions` and `kprobes/list` formats; the test VM has no tracefs, and no real ftrace rootkit was loaded.
+  On the clean CI runner (root, Ubuntu 26.04) the baseline scan reported no limitations (tracefs, `/dev/kmsg` and
+  eBPF readable), `enabled_functions` held 4 hooks with no module owner, and neither check produced a finding.
 
 - **Unit tests** cover all pure logic in `src/core` (process, command-line, memory-map, injection, rootkit
   cross-view, taint, eBPF, persistence parsers and scoring, sudoers, PAM, udev, desktop files, authorized_keys,
