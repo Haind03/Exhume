@@ -125,12 +125,18 @@ rule Exhume_Script_Memfd_Loader
         $s2 = "import ctypes" ascii
         $s3 = "use POSIX" ascii
         $s4 = "require 'fiddle'" ascii
+        // Interpreter test suites exercise memfd_create + exec on purpose (CPython test_os).
+        $t1 = "import unittest" ascii
+        $t2 = "unittest.TestCase" ascii
+        $t3 = "from test import support" ascii
     condition:
         filesize < 5MB
         and uint32(0) != 0x464c457f        // not ELF
         and uint32(0) != 0x72613c21        // not an ar archive (static libraries)
+        and uint16(2) != 0x0a0d            // not compiled Python bytecode (.pyc: magic, "\r\n")
         and (uint16(0) == 0x2123 or any of ($s*))   // "#!" or interpreter imports
         and 1 of ($m*) and 1 of ($e*)
+        and not any of ($t*)
 }
 
 rule Exhume_XMRig_Miner

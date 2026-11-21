@@ -345,7 +345,7 @@ mod tests {
             &roots,
             &Walk {
                 max_depth: 12,
-                limit: 400_000,
+                limit: 1_000_000,
                 skip_dir: &skip,
                 visit: &visit,
             },

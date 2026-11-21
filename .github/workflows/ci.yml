@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Optimized but quick to build: the gate scans every enabled rule against the runner's
-      # system files plus its preinstalled toolchains (/usr/local, /opt), up to 400 000 files.
+      # system files plus its preinstalled toolchains (/usr/local, /opt), up to 1 000 000 files.
       CARGO_PROFILE_RELEASE_LTO: "false"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
