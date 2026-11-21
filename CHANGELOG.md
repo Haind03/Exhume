@@ -3,6 +3,27 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-21
+
+### Added
+- YARA: 118 more rule files from SEKOIA (80, DRL 1.1), Volexity (9, BSD 2-Clause), JPCERT/CC (16, BSD 3-Clause),
+  Tenable (8, BSD 3-Clause), Mandiant (2, BSD 2-Clause), Intezer (1, MIT), Trellix (1, Apache 2.0) and bartblaze
+  (1, MIT): Linux backdoors and rootkits, edge-appliance implants (Ivanti, SonicWall, Palo Alto, FortiGate,
+  Barracuda), BRICKSTORM, tunnelling and C2 tools, privilege-escalation exploits and PHP/JSP webshells.
+  475 embedded rule files from 12 sources; signature-base updated to a newer commit.
+- ftrace hook cross-view: callbacks in tracefs `enabled_functions` are attributed to the module that owns them.
+  Hooks owned by a module missing from `/proc/modules` are Critical; modules hooking syscalls or hiding-related
+  functions are High. kprobes on syscalls from `kprobe_events` and debugfs `kprobes/list`.
+- Kernel log indicators from `/dev/kmsg` (kernel records only): unsigned or out-of-tree modules that are no longer
+  listed, `bpf_probe_write_user` programs, `argc == 0` executions (PwnKit), lockdown and Yama denials,
+  hardened-usercopy stops, crashes of privileged programs. `--lookback` applies.
+- `--ioc FILE`: hashes, IPs/CIDRs, domains, paths and names matched against processes, sockets, command lines,
+  the text of every finding and the files behind findings.
+- The false-positive gate takes `EXHUME_FP_ROOTS`; CI also scans `/usr/share`, `/usr/local` and `/opt`.
+
+### Fixed
+- Release notes list every rule license (MIT, BSD 2/3-Clause and Apache 2.0 were missing).
+
 ## [0.4.0] - 2026-10-20
 
 ### Added

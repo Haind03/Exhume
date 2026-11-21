@@ -2,6 +2,7 @@
 //! Nothing on the host is written, signalled (kill uses signal 0) or modified.
 
 pub mod governor;
+pub mod kernel;
 pub mod mem;
 pub mod net;
 pub mod persist;

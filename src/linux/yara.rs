@@ -330,8 +330,10 @@ mod tests {
     fn false_positive_clean_system_files() {
         use crate::linux::walk::{par_walk, Walk};
         let Ok(e) = engine(&[]) else { panic!() };
-        let roots: Vec<String> = ["/usr/bin", "/usr/sbin", "/usr/lib", "/usr/libexec", "/etc"]
-            .iter()
+        // EXHUME_FP_ROOTS (colon-separated) widens or replaces the corpus.
+        let roots: Vec<String> = std::env::var("EXHUME_FP_ROOTS")
+            .unwrap_or_else(|_| "/usr/bin:/usr/sbin:/usr/lib:/usr/libexec:/etc".into())
+            .split(':')
             .filter(|r| std::path::Path::new(r).exists())
             .map(|r| r.to_string())
             .collect();
@@ -343,7 +345,7 @@ mod tests {
             &roots,
             &Walk {
                 max_depth: 12,
-                limit: 200_000,
+                limit: 400_000,
                 skip_dir: &skip,
                 visit: &visit,
             },

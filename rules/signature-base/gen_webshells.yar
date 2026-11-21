@@ -414,7 +414,7 @@ rule WEBSHELL_PHP_Generic_Callback
         author = "Arnim Rupp (https://github.com/ruppde)"
         reference = "Internal Research"
         date = "2021/01/14"
-        modified = "2023-09-18"
+        modified = "2026-11-17"
         score = 60
         hash = "e98889690101b59260e871c49263314526f2093f"
         hash = "63297f8c1d4e88415bc094bc5546124c9ed8d57aca3a09e36ae18f5f054ad172"
@@ -450,6 +450,7 @@ rule WEBSHELL_PHP_Generic_Callback
         $gfp10 = "[][}{;|]\\|\\\\[+=]\\|<?=>?"
         $gfp11 = "(eval (getenv \"EPROLOG\")))"
         $gfp12 = "ZmlsZV9nZXRfY29udGVudHMoJ2h0dHA6Ly9saWNlbnNlLm9wZW5jYXJ0LWFwaS5jb20vbGljZW5zZS5waHA/b3JkZXJ"
+        $gfp13 = "https://github.com/nextcloud/"
 
         //strings from private rule php_false_positive_tiny
         // try to use only strings which would be flagged by themselves as suspicious by other rules, e.g. eval
@@ -4215,7 +4216,7 @@ rule WEBSHELL_ASP_Generic_Tiny
         hash = "0864f040a37c3e1cef0213df273870ed6a61e4bc"
         hash = "b184dc97b19485f734e3057e67007a16d47b2a62"
 
-        id = "0904cefb-6e0f-5e5f-9986-cf83d409ce46"
+        id = "fb948afe-b89e-4ca9-95c5-a8e08e2520ed"
     strings:
         $fp1 = "net.rim.application.ipproxyservice.AdminCommand.execute"
 
@@ -4424,7 +4425,7 @@ rule WEBSHELL_ASP_Generic : FILE {
         hash = "4cf6fbad0411b7d33e38075f5e00d4c8ae9ce2f6f53967729974d004a183b25c"
         hash = "a91320483df0178eb3cafea830c1bd94585fc896"
         hash = "f3398832f697e3db91c3da71a8e775ebf66c7e73"
-        id = "0904cefb-6e0f-5e5f-9986-cf83d409ce46"
+        id = "49681935-0776-45d1-b410-6f8a936a74e1"
     strings:
         $asp_much_sus7  = "Web Shell" nocase
         $asp_much_sus8  = "WebShell" nocase

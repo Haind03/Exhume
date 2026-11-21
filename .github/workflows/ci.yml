@@ -39,7 +39,8 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     env:
-      # Optimized but quick to build: the gate scans ~16 000 files with every rule.
+      # Optimized but quick to build: the gate scans every enabled rule against the runner's
+      # system files plus its preinstalled toolchains (/usr/local, /opt), up to 400 000 files.
       CARGO_PROFILE_RELEASE_LTO: "false"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
@@ -49,6 +50,8 @@ jobs:
         with:
           key: fp-gate
       - name: Scan clean system files with every enabled rule
+        env:
+          EXHUME_FP_ROOTS: /usr/bin:/usr/sbin:/usr/lib:/usr/libexec:/etc:/usr/share:/usr/local:/opt
         run: cargo test --release --locked -- --ignored false_positive --nocapture
 
   persistence-coverage:
@@ -203,7 +206,7 @@ jobs:
             cat SHA256SUMS.txt
             echo '```'
             echo
-            echo "Third-party YARA rules keep their own licenses (Elastic License 2.0, DRL 1.1); see rules/README.md."
+            echo "Third-party YARA rules keep their own licenses (Elastic License 2.0, DRL 1.1, MIT, BSD 2-Clause, BSD 3-Clause, Apache 2.0); see rules/README.md."
             echo
             echo "*by HaiND from the Post and Telecommunication Institute of Technology*"
           } > notes.md
